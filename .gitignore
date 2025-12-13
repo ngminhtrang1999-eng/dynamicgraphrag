@@ -1,0 +1,50 @@
+# ------------------------------------
+# 1. Dependency/Build Folders
+# ------------------------------------
+/node_modules
+/.venv
+/env
+/target
+/dist
+/build
+
+# ------------------------------------
+# 2. Compiled Code / Artifacts
+# ------------------------------------
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Python
+__pycache__/
+*.pyc
+
+# ------------------------------------
+# 3. System Files
+# ------------------------------------
+.DS_Store
+Thumbs.db
+
+# ------------------------------------
+# 4. IDE/Editor Files
+# ------------------------------------
+.vscode/
+.idea/
+.data/
+*.iml
+google-cloud-sdk
+data
+old
+evaluation
+lib
+BlonDe
+bleurt
+BLEURT-20
+
+# ------------------------------------
+# 5. Secrets/Configuration
+# ------------------------------------
+# Environment files
+.env
+.local.env
