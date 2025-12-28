@@ -7,6 +7,8 @@
 /target
 /dist
 /build
+/bleurt
+/BLEURT-20
 
 # ------------------------------------
 # 2. Compiled Code / Artifacts

@@ -9,7 +9,7 @@ OUTPUT_TRANS_DIR = "data/LOTM/translations"
 DATA_DIR = "data/knowledge_base"
 
 # Local Model Config
-MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+MODEL_NAME = "Qwen/Qwen3-4B"
 MAX_NEW_TOKENS = 16000
 
 # Gemini Config
@@ -37,10 +37,12 @@ CLOUDFARE_ACCOUNT_ID = os.getenv("CLOUDFARE_ACCOUNT_ID", "")
 
 # Strategy Params
 WINDOW_SIZE = 5
-START_CHAPTER = 7
+START_CHAPTER = 1
 END_CHAPTER = 10
-CHUNK_SIZE = 600 # Strong model = 1200, weak model = 750
+CHUNK_SIZE = 300 
+CHUNK_SIZE_MINING = 500 
 
 # Temperature Strategy
-TEMP_MINING = 0.05
-TEMP_CREATIVE = 0.5
+TEMP_MINING = 0.8
+TEMP_INJECTION = 0.1  # Low temperature for deterministic entity annotation
+TEMP_CREATIVE = 1.3

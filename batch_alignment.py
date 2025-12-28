@@ -5,24 +5,27 @@ import re
 import numpy as np
 import torch.nn.functional as F
 from sentence_transformers import SentenceTransformer
-
+import multiprocessing
 
 # Configurations
 
 OUTPUT_DIR = "evaluation/alignment_results"
-
-# --- 1. CẤU HÌNH & LOAD MODEL ---
-# LaBSE là model tốt nhất cho việc align song ngữ Anh-Việt
 MODEL_NAME = 'sentence-transformers/LaBSE' 
 
-print(f"--- Đang khởi tạo môi trường ---")
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(f"Sử dụng thiết bị: {device.upper()}")
+# Global variables for worker processes
+model = None
+device = None
 
-print(f"Đang tải model {MODEL_NAME}...")
-model = SentenceTransformer(MODEL_NAME)
-model.to(device)
-
+def init_worker():
+    """Initializer for worker processes to load model once."""
+    global model, device
+    print(f"--- Process {os.getpid()} initializing ---")
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"[{os.getpid()}] Device: {device.upper()}")
+    print(f"[{os.getpid()}] Loading model {MODEL_NAME}...")
+    model = SentenceTransformer(MODEL_NAME)
+    model.to(device)
+    print(f"[{os.getpid()}] Model loaded.")
 
 # --- 2. HÀM TÁCH CÂU (ROBUST SPLIT) ---
 def smart_sentence_split(text):
@@ -53,6 +56,10 @@ def global_dynamic_alignment(src_list, tgt_list, max_merge_tgt=5, max_merge_src=
     """
     Phiên bản V2: Tối ưu cho hội thoại ngắn và giảm thiểu lệch dòng.
     """
+    # Verify model is loaded (should be done by init_worker)
+    if model is None:
+        raise RuntimeError("Model not initialized in worker process")
+
     n = len(src_list)
     m = len(tgt_list)
     
@@ -73,7 +80,7 @@ def global_dynamic_alignment(src_list, tgt_list, max_merge_tgt=5, max_merge_src=
     PENALTY_MERGE_TGT = 0.05 
     PENALTY_MERGE_SRC = 0.1  
 
-    print("Đang tính toán đường đi tối ưu (Global Search V2)...")
+    # print(f"[{os.getpid()}] Calculating alignment...")
     
     for i in range(n + 1):
         for j in range(m + 1):
@@ -133,7 +140,7 @@ def global_dynamic_alignment(src_list, tgt_list, max_merge_tgt=5, max_merge_src=
     
     # Fallback tìm đích đến tốt nhất nếu không chạm (n, m)
     if (curr_i, curr_j) not in trace:
-        print("Cảnh báo: Lạc đường, tìm điểm kết thúc gần nhất...")
+        # print(f"[{os.getpid()}] Warning: Path lost, using best endpoint...")
         max_score = -np.inf
         best_pos = (n, m)
         # Quét hàng cuối và cột cuối
@@ -168,11 +175,6 @@ def global_dynamic_alignment(src_list, tgt_list, max_merge_tgt=5, max_merge_src=
 def create_master_csv(src_sents, dict_alignments):
     """
     Tạo bảng Master CSV lấy Source làm chuẩn.
-    
-    Params:
-        src_sents: List các câu source gốc (đã tách).
-        dict_alignments: Dictionary chứa kết quả align của các model. 
-                         Ví dụ: {"Trans1": aligned_trans1, "Trans2": aligned_trans2}
     """
     
     # 1. Khởi tạo khung dữ liệu chuẩn với Source
@@ -200,15 +202,7 @@ def create_master_csv(src_sents, dict_alignments):
             match_type = pair['Type'] # vd: "1-1", "2-1"
             
             # --- LOGIC QUAN TRỌNG: MAPPING ---
-            # Chúng ta cần biết cặp align này ứng với những index nào của Source gốc
-            
-            # Đếm xem cặp align này "ngốn" bao nhiêu câu source
-            # Cách đơn giản nhất: Check độ dài chuỗi hoặc dùng Type.
-            # Ở đây ta dùng Type cho chính xác (giả sử Type format là "SrcCount-TgtCount")
             num_src_merged = int(match_type.split('-')[0])
-            
-            # Kiểm tra an toàn (Optional): So sánh text để chắc chắn đúng vị trí
-            # (Bỏ qua bước này để code gọn, nhưng thực tế nên có)
             
             # Điền dữ liệu vào dòng đầu tiên của block (Anchor)
             if src_idx < len(master_data):
@@ -225,81 +219,88 @@ def create_master_csv(src_sents, dict_alignments):
             
     return pd.DataFrame(master_data)
 
+def process_chapter(i):
+    print(f"[{os.getpid()}] Processing Chapter {i}...")
+    
+    # Define File Paths
+    path_src = f"data/LOTM/chapters/chapter_{i:04d}.txt" 
+    path_ref = f"data/LOTM/translations/reference/ref_{i}.txt"
+    path_rag = f"data/LOTM/translations/gemini-2.5-flash_RAG/trans_chap_{i}_gemini2.5-flash_yes.txt"
+    path_no_rag = f"data/LOTM/translations/gemini-2.5-flash_No_RAG/trans_chap_{i}_gemini2.5-flash_no.txt"
+    path_gg = f"data/LOTM/translations/google_translate/translated_chapter_{i:04d}.txt"
+    
+    # Verify files exist
+    missing_files = []
+    if not os.path.exists(path_src): missing_files.append(path_src)
+    if not os.path.exists(path_ref): missing_files.append(path_ref)
+    if not os.path.exists(path_rag): missing_files.append(path_rag)
+    if not os.path.exists(path_no_rag): missing_files.append(path_no_rag)
+    if not os.path.exists(path_gg): missing_files.append(path_gg)
+    
+    if missing_files:
+        print(f"[{os.getpid()}] SKIP Chapter {i}: Missing files: {missing_files}")
+        return
+
+    try:
+        # Read files
+        with open(path_src, 'r', encoding='utf-8-sig') as f: src_text = f.read()
+        with open(path_ref, 'r', encoding='utf-8-sig') as f: ref_text = f.read()
+        with open(path_rag, 'r', encoding='utf-8-sig') as f: rag_text = f.read()
+        with open(path_no_rag, 'r', encoding='utf-8-sig') as f: no_rag_text = f.read()
+        with open(path_gg, 'r', encoding='utf-8-sig') as f: gg_text = f.read()
+        
+        # Segment sentences
+        src_sents = smart_sentence_split(src_text)
+        ref_sents = smart_sentence_split(ref_text)
+        rag_sents = smart_sentence_split(rag_text)
+        no_rag_sents = smart_sentence_split(no_rag_text)
+        gg_sents = smart_sentence_split(gg_text)
+        
+        # --- Alignment ---
+        # print(f"[{os.getpid()}] Aligning Chapter {i}...")
+        res_ref = global_dynamic_alignment(src_sents, ref_sents, max_merge_tgt=5)
+        res_rag = global_dynamic_alignment(src_sents, rag_sents, max_merge_tgt=5)
+        res_no_rag = global_dynamic_alignment(src_sents, no_rag_sents, max_merge_tgt=5)
+        res_gg = global_dynamic_alignment(src_sents, gg_sents, max_merge_tgt=5)
+        
+        # --- Create Master CSV ---
+        df_master = create_master_csv(
+            src_sents, 
+            {
+                "ref": res_ref, 
+                "RAG": res_rag, 
+                "No_RAG": res_no_rag, 
+                "GG": res_gg
+            }
+        )
+        
+        out_path = os.path.join(OUTPUT_DIR, f"aligned_master_chap_{i}.csv")
+        df_master.to_csv(out_path, index=False, encoding='utf-8-sig')
+        
+        print(f"[{os.getpid()}] DONE Chapter {i}. Saved to {out_path}")
+
+    except Exception as e:
+        print(f"[{os.getpid()}] ERROR processing Chapter {i}: {e}")
+        import traceback
+        traceback.print_exc()
+
 def main():
     print(f"Output Directory: {OUTPUT_DIR}")
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-    for i in range(1, 11):
-        print(f"\nExample {i}/10 --------------------------------------------------")
-        
-        # Define File Paths
-        path_src = f"data/LOTM/chapters/chapter_{i:04d}.txt" # Need Source Text too
-        path_ref = f"data/LOTM/translations/reference/ref_{i}.txt"
-        path_rag = f"data/LOTM/translations/deepseek-v3.1-terminus_RAG/trans_chap_{i}_deepseek-v3.1_yes.txt"
-        path_no_rag = f"data/LOTM/translations/deepseek-v3.1-terminus_No_RAG/trans_chap_{i}_deepseek-v3.1_no.txt"
-        path_gg = f"data/LOTM/translations/google_translate/translated_chapter_{i:04d}.txt"
-        
-        # Verify files exist
-        missing_files = []
-        if not os.path.exists(path_src): missing_files.append(path_src)
-        if not os.path.exists(path_ref): missing_files.append(path_ref)
-        if not os.path.exists(path_rag): missing_files.append(path_rag)
-        if not os.path.exists(path_no_rag): missing_files.append(path_no_rag)
-        if not os.path.exists(path_gg): missing_files.append(path_gg)
-        
-        if missing_files:
-            print(f"SKIP Chapter {i}: Missing files: {missing_files}")
-            continue
+    # Use 3 processes as requested
+    num_processes = 3
+    chapters = list(range(1, 11))
 
-        try:
-            # Read files
-            with open(path_src, 'r', encoding='utf-8-sig') as f: src_text = f.read()
-            with open(path_ref, 'r', encoding='utf-8-sig') as f: ref_text = f.read()
-            with open(path_rag, 'r', encoding='utf-8-sig') as f: rag_text = f.read()
-            with open(path_no_rag, 'r', encoding='utf-8-sig') as f: no_rag_text = f.read()
-            with open(path_gg, 'r', encoding='utf-8-sig') as f: gg_text = f.read()
-            
-            # Segment sentences
-            src_sents = smart_sentence_split(src_text)
-            ref_sents = smart_sentence_split(ref_text)
-            rag_sents = smart_sentence_split(rag_text)
-            no_rag_sents = smart_sentence_split(no_rag_text)
-            gg_sents = smart_sentence_split(gg_text)
-            
-            # --- Alignment ---
-            # All align to Source
-            print(f"Aligning Ref vs Source (Chap {i})...")
-            res_ref = global_dynamic_alignment(src_sents, ref_sents, max_merge_tgt=5)
-            
-            print(f"Aligning RAG vs Source (Chap {i})...")
-            res_rag = global_dynamic_alignment(src_sents, rag_sents, max_merge_tgt=5)
-            
-            print(f"Aligning No-RAG vs Source (Chap {i})...")
-            res_no_rag = global_dynamic_alignment(src_sents, no_rag_sents, max_merge_tgt=5)
-            
-            print(f"Aligning GG vs Source (Chap {i})...")
-            res_gg = global_dynamic_alignment(src_sents, gg_sents, max_merge_tgt=5)
-            
-            # --- Create Master CSV ---
-            print(f"Creating Master CSV for Chapter {i}...")
-            df_master = create_master_csv(
-                src_sents, 
-                {
-                    "ref": res_ref, 
-                    "RAG": res_rag, 
-                    "No_RAG": res_no_rag, 
-                    "GG": res_gg
-                }
-            )
-            
-            out_path = os.path.join(OUTPUT_DIR, f"aligned_master_chap_{i}.csv")
-            df_master.to_csv(out_path, index=False, encoding='utf-8-sig')
-            
-            print(f"Done Chapter {i}. Saved to {out_path}")
+    print(f"Starting pool with {num_processes} processes for {len(chapters)} chapters...")
+    
+    with multiprocessing.Pool(processes=num_processes, initializer=init_worker) as pool:
+        pool.map(process_chapter, chapters)
 
-        except Exception as e:
-            print(f"ERROR processing Chapter {i}: {e}")
+    print("\nAll chapters processed.")
 
 if __name__ == "__main__":
+    # Ensure this is safe for Windows/Spawn
+    multiprocessing.set_start_method('spawn', force=True)
     main()

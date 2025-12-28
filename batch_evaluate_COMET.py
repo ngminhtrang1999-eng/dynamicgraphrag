@@ -20,33 +20,28 @@ output_dir = "evaluation"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-
-results = []
 models_to_eval = ["RAG", "No_RAG", "GG"]
 
-print("Starting COMET evaluation...")
+print("Starting OVERALL evaluation for COMET...")
+
+# Dictionary to hold aggregated data for each model
+aggregated_data = {model: [] for model in models_to_eval}
 
 for chapter in range(1, 11):
-    chapter_scores = {"Chapter": f"Chapter {chapter}"}
-    
-    # New filename format
     filename = f"aligned_master_chap_{chapter}.csv"
     filepath = os.path.join(data_dir, filename)
     
     if os.path.exists(filepath):
-        print(f"Processing {filename}...")
+        print(f"Collecting data from {filename}...")
         try:
             df = pd.read_csv(filepath)
             
-            # Check required columns
-            # Column 'ref' is the anchor. 'RAG', 'No_RAG', 'GG' are candidates.
             if "ref" not in df.columns:
                 print(f"SKIP {chapter}: Column 'ref' not found.")
                 continue
 
             for model_name in models_to_eval:
                 if model_name in df.columns:
-                    # 1. Prepare raw list
                     raw_rows = []
                     for _, row in df.iterrows():
                         raw_rows.append({
@@ -55,54 +50,47 @@ for chapter in range(1, 11):
                             "ref": row["ref"]
                         })
                     
-                    # 2. Preprocess (Merge logic)
+                    # Preprocess and merge logic
                     clean_rows = preprocess_evaluate_data(raw_rows)
-                    
-                    if not clean_rows:
-                        print(f"  Warning: No valid data for {model_name} in Chap {chapter}")
-                        chapter_scores[model_name] = 0
-                        continue
-
-                    # 3. Prepare data for COMET (list of dicts with src, mt, ref)
-                    # clean_rows is alrady in the format [{"src":..., "mt":..., "ref":...}]
-                    comet_data = clean_rows
-                    
-                    # 4. Score
-                    # batch_size=8, gpus based on check
-                    model_output = model.predict(comet_data, batch_size=8, gpus=gpus)
-                    # model_output.system_score is the average
-                    
-                    chapter_scores[model_name] = model_output.system_score
-                    # print(f"  {model_name}: {model_output.system_score:.4f}")
+                    if clean_rows:
+                        aggregated_data[model_name].extend(clean_rows)
                 else:
-                    print(f"  Column '{model_name}' missing in CSV.")
-                    chapter_scores[model_name] = None
+                    print(f"  Column '{model_name}' missing in {filename}.")
                     
         except Exception as e:
             print(f"Error processing {filename}: {e}")
             
     else:
         print(f"File not found: {filename}")
-        
-    results.append(chapter_scores)
 
+# Calculate Overall Score
+results = []
+score_row = {"Type": "Overall Score"}
+
+for model_name in models_to_eval:
+    data_list = aggregated_data[model_name]
+    if data_list:
+        print(f"Calculating overall score for {model_name} with {len(data_list)} samples...")
+        
+        # COMET expects list of dicts: {"src": ..., "mt": ..., "ref": ...}
+        # data_list already in that format
+        
+        model_output = model.predict(data_list, batch_size=8, gpus=gpus)
+        score_row[model_name] = model_output.system_score
+    else:
+        score_row[model_name] = None
+
+results.append(score_row)
 results_df = pd.DataFrame(results)
 
-# Post-processing
 if not results_df.empty:
-    # Identify best
-    # Filter columns that actually exist and are numeric
     valid_cols = [c for c in models_to_eval if c in results_df.columns]
     if valid_cols:
         results_df["Best"] = results_df[valid_cols].idxmax(axis=1)
     
-    # Reorder
-    cols = ["Chapter"] + valid_cols + (["Best"] if valid_cols else [])
-    results_df = results_df[cols]
-
-    output_path = os.path.join(output_dir, "comet_results.csv")
+    output_path = os.path.join(output_dir, "comet_overall_results.csv")
     results_df.to_csv(output_path, index=False)
-    print(f"\nFinal Results saved to {output_path}")
+    print(f"\nFinal Overall Results saved to {output_path}")
     print(results_df)
 else:
     print("No results generated.")

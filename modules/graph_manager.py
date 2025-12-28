@@ -1,6 +1,6 @@
 import os
 import re
-from utils import load_json, save_json
+from utils import load_json, save_json, infer_pronoun_pair
 
 class GraphManager:
     def __init__(self, data_dir):
@@ -9,24 +9,39 @@ class GraphManager:
         self.path_local = os.path.join(data_dir, "local_graph.json")
         self.path_tracking = os.path.join(data_dir, "global_tracking.json")
         self.path_glossary = os.path.join(data_dir, "term_glossary.json")
+        self.path_trans_progress = os.path.join(data_dir, "translation_progress.json")
+
         
         # In-memory storage
         self.global_graph = {"nodes": {}, "semantic_edges": {}}
         self.local_graph = {"history": []}
         self.glossary = {}
         self.tracking = {"last_processed_chap": 0}
+        
+        # Incremental Translation Progress
+        # Structure: {str(chap_idx): {"last_chunk_index": int, "chunk_size": int}}
+        self.trans_progress = {}
+
+        
+        # Sliding Window Entity Memory
+        self.active_entities = {}  # {entity_id: TTL}
+        self.DEFAULT_TTL = 3  # Persists for 2 additional chunks after last mention
 
     def load_data(self):
         self.global_graph = load_json(self.path_global, self.global_graph)
         self.local_graph = load_json(self.path_local, self.local_graph)
         self.glossary = load_json(self.path_glossary, self.glossary)
         self.tracking = load_json(self.path_tracking, self.tracking)
+        self.trans_progress = load_json(self.path_trans_progress, self.trans_progress)
+
 
     def save_data(self):
         save_json(self.path_global, self.global_graph)
         save_json(self.path_local, self.local_graph)
         save_json(self.path_glossary, self.glossary)
         save_json(self.path_tracking, self.tracking)
+        save_json(self.path_trans_progress, self.trans_progress)
+
 
     def get_existing_node_ids(self):
         return list(self.global_graph["nodes"].keys())
@@ -40,6 +55,108 @@ class GraphManager:
     def update_glossary(self, new_terms):
         if new_terms:
             self.glossary.update(new_terms)
+
+    # --- PROGRESS TRACKING (TRANSLATION) ---
+    def get_chapter_progress(self, chap_idx):
+        prog = self.trans_progress.get(str(chap_idx), {}).copy()
+        # Convert 1-based (human friendly) back to 0-based for internal logic
+        if "last_chunk_index" in prog:
+            prog["last_chunk_index"] -= 1
+        return prog
+
+    def update_chapter_progress(self, chap_idx, chunk_index, chunk_size, last_sentences=""):
+        self.trans_progress[str(chap_idx)] = {
+            "last_chunk_index": chunk_index + 1, # Make it 1-based for human readability
+            "chunk_size": chunk_size,
+            "last_sentences": last_sentences
+        }
+        # Save immediately to ensure resume capability
+        save_json(self.path_trans_progress, self.trans_progress)
+
+    # --- SLIDING WINDOW ENTITY MEMORY ---
+    def _resolve_to_graph_id(self, raw_name):
+        """Resolve a raw entity name to its canonical graph ID."""
+        if not raw_name:
+            return None
+        if raw_name in self.global_graph["nodes"]:
+            return raw_name
+        raw_lower = raw_name.lower()
+        for node_id in self.global_graph["nodes"]:
+            if raw_lower in node_id.lower() or node_id.lower() in raw_lower:
+                return node_id
+        return None
+
+    def update_active_memory(self, entities_found):
+        """Update sliding window memory with entities from current chunk.
+        
+        Args:
+            entities_found: List of entity names found in current chunk (from NER)
+        """
+        # Step 1: Reset TTL for found entities
+        for entity in entities_found:
+            canonical_id = self._resolve_to_graph_id(entity)
+            if canonical_id:
+                self.active_entities[canonical_id] = self.DEFAULT_TTL
+        
+        # Step 2: Decay all TTLs
+        expired = []
+        for entity_id in self.active_entities:
+            self.active_entities[entity_id] -= 1
+            if self.active_entities[entity_id] <= 0:
+                expired.append(entity_id)
+        
+        # Step 3: Clean expired entities
+        for entity_id in expired:
+            del self.active_entities[entity_id]
+
+    def get_relations_data(self):
+        """Get relations for active entities as structured data.
+        
+        Returns:
+            List[Dict]: Each dict contains {source, target, source_pronoun, 
+                        target_pronoun, relation_type}
+        """
+        relations = []
+        nodes_map = self.global_graph.get("nodes", {})
+        active_set = set(self.active_entities.keys())
+        
+        for key, data in self.global_graph["semantic_edges"].items():
+            src = data["source"]
+            tgt = data["target"]
+            
+            # Check if at least one entity is active
+            if src in active_set or tgt in active_set:
+                src_node = nodes_map.get(src)
+                tgt_node = nodes_map.get(tgt)
+                
+                # Only include PERSON-PERSON relationships
+                if src_node and tgt_node:
+                    
+                    curr = data["current"]
+                    pronouns = curr.get("pronouns", {})
+                    
+                    s_call_t = pronouns.get("source_call_target", "")
+                    t_call_s = pronouns.get("target_call_source", "")
+
+                    # Infer "Self" pronouns (Ta/Tôi/Con/...) based on how they call the other
+                    # Also use gender (if available) to refine the self-pronoun (e.g. Chú/Cô vs Cháu)
+                    src_gender = src_node.get("gender", "UNKNOWN")
+                    tgt_gender = tgt_node.get("gender", "UNKNOWN")
+                    
+                    s_call_self = infer_pronoun_pair(s_call_t, gender=src_gender)
+                    t_call_self = infer_pronoun_pair(t_call_s, gender=tgt_gender)
+                    
+                    relations.append({
+                        "source": src,
+                        "target": tgt,
+                        "s_call_t": s_call_t,
+                        "t_call_s": t_call_s,
+                        "s_call_self": s_call_self,
+                        "t_call_self": t_call_self, # Adding this for completeness if needed (target's perspective)
+                        "relation_type": curr.get("relation", "related")
+                    })
+        
+        return relations
 
     # --- CORE GRAPH LOGIC (Moved from test.py) ---
     def resolve_entity_name(raw_name, existing_nodes):
@@ -63,45 +180,44 @@ class GraphManager:
         ignore_prefixes = {'mr', 'mr.', 'ms', 'ms.', 'dr', 'dr.', 'miss', 'mrs', 'mrs.', 'detective', 'captain'}
         
         for node_id, node_data in nodes.items():
-            if node_data["type"] != "Object":
-                # 1. Tự động sinh các biến thể tên (Aliases)
-                variants = {node_id} # Luôn bắt đầu bằng tên gốc (Full ID)
+            # 1. Tự động sinh các biến thể tên (Aliases)
+            variants = {node_id} # Luôn bắt đầu bằng tên gốc (Full ID)
+            
+            parts = node_id.split()
+            if len(parts) > 1:
+                # Lấy tên đầu (First Name) - Phổ biến nhất
+                first_part = parts[0]
+                # Chỉ lấy nếu nó không phải danh xưng (Mr, Dr...) và đủ dài (>2 ký tự)
+                if first_part.lower() not in ignore_prefixes and len(first_part) > 2:
+                    variants.add(first_part)
                 
-                parts = node_id.split()
-                if len(parts) > 1:
-                    # Lấy tên đầu (First Name) - Phổ biến nhất
-                    first_part = parts[0]
-                    # Chỉ lấy nếu nó không phải danh xưng (Mr, Dr...) và đủ dài (>2 ký tự)
-                    if first_part.lower() not in ignore_prefixes and len(first_part) > 2:
-                        variants.add(first_part)
-                    
-                    # (Tùy chọn) Lấy tên cuối (Last Name)
-                    # last_part = parts[-1]
-                    # if last_part.lower() not in ignore_prefixes and len(last_part) > 2:
-                    #     variants.add(last_part)
+                # (Tùy chọn) Lấy tên cuối (Last Name)
+                # last_part = parts[-1]
+                # if last_part.lower() not in ignore_prefixes and len(last_part) > 2:
+                #     variants.add(last_part)
 
-                # 2. Sắp xếp biến thể theo độ dài giảm dần (QUAN TRỌNG)
-                # Để Regex khớp chuỗi dài nhất trước: "Klein Moretti" ưu tiên hơn "Klein"
-                sorted_variants = sorted(list(variants), key=len, reverse=True)
+            # 2. Sắp xếp biến thể theo độ dài giảm dần (QUAN TRỌNG)
+            # Để Regex khớp chuỗi dài nhất trước: "Klein Moretti" ưu tiên hơn "Klein"
+            sorted_variants = sorted(list(variants), key=len, reverse=True)
+            
+            # 3. Tạo Regex tổng hợp: \b(Klein Moretti|Klein)\b
+            # Dùng re.escape để xử lý các ký tự đặc biệt nếu có
+            pattern_str = r"\b(?:" + "|".join(re.escape(v) for v in sorted_variants) + r")\b"
+            
+            # 4. Đếm số lần xuất hiện
+            matches = re.findall(pattern_str, text, re.IGNORECASE)
+            count_in_chapter = len(matches)
+            
+            if count_in_chapter > 0:
+                # Cộng dồn số lần xuất hiện thực tế
+                node_data["mention_count"] = node_data.get("mention_count", 0) + count_in_chapter
+                node_data["last_seen"] = chapter_id
                 
-                # 3. Tạo Regex tổng hợp: \b(Klein Moretti|Klein)\b
-                # Dùng re.escape để xử lý các ký tự đặc biệt nếu có
-                pattern_str = r"\b(?:" + "|".join(re.escape(v) for v in sorted_variants) + r")\b"
-                
-                # 4. Đếm số lần xuất hiện
-                matches = re.findall(pattern_str, text, re.IGNORECASE)
-                count_in_chapter = len(matches)
-                
-                if count_in_chapter > 0:
-                    # Cộng dồn số lần xuất hiện thực tế
-                    node_data["mention_count"] = node_data.get("mention_count", 0) + count_in_chapter
-                    node_data["last_seen"] = chapter_id
-                    
-                    # Logic nâng cấp lên Permanent
-                    if node_data.get("status_graph", "Probation") == "Probation" and node_data["mention_count"] >= 10:
-                        node_data["status_graph"] = "Permanent"
-                        print(f"      ★ [UPGRADE] Node Permanent: {node_id} (Count: {node_data['mention_count']})")
-        
+                # Logic nâng cấp lên Permanent
+                if node_data.get("status_graph", "Probation") == "Probation" and node_data["mention_count"] >= 10:
+                    node_data["status_graph"] = "Permanent"
+                    print(f"      ★ [UPGRADE] Node Permanent: {node_id} (Count: {node_data['mention_count']})")
+    
         # Garbage Collection (Logic cũ)
         for node_id, node_data in nodes.items():
             if node_data.get("status_graph", "Probation") == "Probation":
@@ -174,7 +290,6 @@ class GraphManager:
                     
                     old_data = self.global_graph["nodes"].pop(exist_id)
                     old_data["id"] = raw_id
-                    old_data["label"] = node.get("label", raw_id)
                     if node.get("gender") and node.get("gender") != "UNKNOWN":
                         old_data["gender"] = node.get("gender")
                     
@@ -195,8 +310,6 @@ class GraphManager:
                 # Node mới
                 self.global_graph["nodes"][target_id] = {
                     "id": target_id,
-                    "label": node.get("label", target_id),
-                    "type": node.get("type", "UNKNOWN"),
                     "gender": node.get("gender", "UNKNOWN"),
                     "status_graph": "Probation",
                     "mention_count": 0,
@@ -207,8 +320,6 @@ class GraphManager:
                 # Node cũ
                 curr_node = self.global_graph["nodes"][target_id]
                 curr_node["last_seen"] = chapter_id
-                if curr_node.get("type") == "UNKNOWN" and node.get("type") != "UNKNOWN":
-                    curr_node["type"] = node.get("type")
 
         # ================= 1.5 FIX OLD EDGES IF KEY CHANGED (Case C) =================
         if any(k != v for k, v in resolved_id_map.items()):
@@ -265,7 +376,6 @@ class GraphManager:
                     # Tạo object thông tin quan hệ mới
                     relation_info = {
                         "relation": edge.get("relation_type", "related"),
-                        "interaction_summary": edge.get("interaction_summary", ""),
                         "pronouns": {
                             "source_call_target": new_src_call_tgt,
                             "target_call_source": new_tgt_call_src
@@ -292,16 +402,6 @@ class GraphManager:
                         if current_data["since"] == chapter_id:
                             # 1. Cập nhật Relation (Lấy cái mới nhất vì thường nó cụ thể hơn)
                             current_data["relation"] = relation_info["relation"]
-
-                            # 2. Gộp Interaction Summary (Tránh mất thông tin trước đó trong cùng chap)
-                            new_summary = relation_info["interaction_summary"]
-                            old_summary = current_data["interaction_summary"]
-                            
-                            if new_summary:
-                                if not old_summary:
-                                    current_data["interaction_summary"] = new_summary
-                                elif new_summary not in old_summary: # Tránh duplicate câu y hệt
-                                    current_data["interaction_summary"] = f"{old_summary}; {new_summary}"
 
                             # 3. Cập nhật Pronouns (Chỉ cập nhật nếu MỚI có dữ liệu, KHÔNG ghi đè bằng rỗng)
                             new_s_call_t = relation_info["pronouns"]["source_call_target"]
@@ -356,10 +456,8 @@ class GraphManager:
                 src_node = nodes_map.get(src)
                 tgt_node = nodes_map.get(tgt)
                 
-                # 2. CORE LOGIC: Chỉ lấy nếu cả 2 đều tồn tại và đều là PERSON
-                if src_node and tgt_node and \
-                   src_node.get("type") == "PERSON" and \
-                   tgt_node.get("type") == "PERSON":
+                # 2. CORE LOGIC: Chỉ lấy nếu cả 2 đều tồn tại
+                if src_node and tgt_node:
                     
                     curr = data["current"]
                     p = curr.get("pronouns", {})

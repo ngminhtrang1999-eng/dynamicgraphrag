@@ -1,8 +1,8 @@
 import time
 import re
 from abc import ABC, abstractmethod
-from utils import split_text_with_overlap, extract_json_from_response, get_spacy_candidates, filter_similar_names, has_chinese_char
-from modules.prompts import build_extraction_prompt, build_glossary_extraction_prompt, build_translation_prompt
+from utils import split_text_with_overlap, extract_json_from_response, get_spacy_candidates, filter_similar_names, has_chinese_char, clean_entity_tags, count_tokens, add_placeholder_regex, count_sentences
+from modules.prompts import build_extraction_prompt, build_glossary_extraction_prompt, build_translation_prompt, build_entity_injection_prompt
 import const
 
 class BasePipeline(ABC):
@@ -14,12 +14,13 @@ class BasePipeline(ABC):
     def process_chapter(self, text, chap_idx):
         pass
 
-    def call_llm_with_retry(self, messages, temp, check_chinese=True):
+    def call_llm_with_retry(self, messages, temp, check_chinese=True, llm_engine=None):
         # Logic Retry chung cho cả 2 pipeline
+        target_llm = llm_engine if llm_engine else self.llm
         max_retries = 10
         for attempt in range(max_retries):
             try:
-                response = self.llm.generate(messages, temperature=temp)
+                response = target_llm.generate(messages, temperature=temp)
                 # if check_chinese and has_chinese_char(response):
                 #     print(response)
                 #     print(f"   ⚠️ Detect Chinese characters, retrying ({attempt+1}/{max_retries})...")
@@ -31,7 +32,11 @@ class BasePipeline(ABC):
         raise RuntimeError("LLM retry failed after maximum attempts.")
 
 class GraphRAGPipeline(BasePipeline):
-    def process_chapter(self, text, chap_idx):
+    def __init__(self, llm_backend, graph_manager, injection_llm=None):
+        super().__init__(llm_backend, graph_manager)
+        self.injection_llm = injection_llm
+
+    def process_chapter(self, text, chap_idx, out_path):
         print(f"🚀 RUNNING: GraphRAG Pipeline for Chapter {chap_idx}")
         
         # --- PHASE 1: MINING (Only if new chapter) ---
@@ -43,13 +48,21 @@ class GraphRAGPipeline(BasePipeline):
         else:
             print("   ⏭️  Phase 1 Skipped (Already processed).")
 
+        # --- MANUAL PAUSE & RELOAD ---
+        print("\n   ⏸️  Paused. You can now edit 'term_glossary.json' or 'global_graph.json'.")
+        user_input = input("   Press Enter (or 'c') to continue to Phase 2, or Ctrl+C to exit: ")
+        
+        print("   🔄 Reloading graph data from disk...")
+        self.gm.load_data()
+        print("   ✅ Data reloaded.")
+
         # --- PHASE 2: TRANSLATION ---
         print("   ✍️  Phase 2: Translation with Graph Context...")
-        translation = self._phase_2_translation(text, chap_idx)
+        translation = self._phase_2_translation(text, chap_idx, out_path)
         return translation
 
     def _phase_1_mining(self, full_text, chap_idx):
-        chunks = split_text_with_overlap(full_text, const.CHUNK_SIZE)
+        chunks = split_text_with_overlap(full_text, const.CHUNK_SIZE_MINING)
         current_glossary = {}
         
         for idx, chunk in enumerate(chunks):
@@ -59,6 +72,7 @@ class GraphRAGPipeline(BasePipeline):
             existing = [n for n in self.gm.get_existing_node_ids() if n in candidates]
             
             prompt = build_extraction_prompt(chunk, existing, candidates)
+            print(f"   ℹ️ Prompt Tokens: {count_tokens(prompt)}")
             response = self.call_llm_with_retry(prompt, const.TEMP_MINING)
             print("----- Response -------- \n\n\n\n\n", response)
             updates = extract_json_from_response(response)
@@ -67,7 +81,9 @@ class GraphRAGPipeline(BasePipeline):
                 self.gm.update_graph_state(updates, chap_idx, candidates)
 
             # 2. Mining Glossary
+            # 2. Mining Glossary
             gloss_prompt = build_glossary_extraction_prompt(chunk)
+            print(f"   ℹ️ Glossary Prompt Tokens: {count_tokens(gloss_prompt)}")
             gloss_resp = self.call_llm_with_retry(gloss_prompt, 0.05, check_chinese=True)
             gloss_data = extract_json_from_response(gloss_resp)
             if gloss_data and "glossary" in gloss_data:
@@ -78,28 +94,182 @@ class GraphRAGPipeline(BasePipeline):
         self.gm.update_glossary(current_glossary)
         
         # Summarize
-        summary_prompt = [{"role": "user", "content": f"Summarize this chapter in Vietnamese (max 50 words):\n\n{full_text[:30000]}"}]
+        summary_prompt = [{"role": "user", "content": f"Summarize this chapter in English (max 35 words):\n\n{full_text}"}]
+        print(f"   ℹ️ Summary Prompt Tokens: {count_tokens(summary_prompt)}")
         summary = self.call_llm_with_retry(summary_prompt, const.TEMP_MINING)
         self.gm.add_history(chap_idx, summary)
 
-    def _phase_2_translation(self, full_text, chap_idx):
+    def _phase_2_translation(self, full_text, chap_idx, out_path):
         chunks = split_text_with_overlap(full_text, const.CHUNK_SIZE, 0)
         full_trans = ""
         
-        # Get context
+        # Check Tracking to Resume
+        progress = self.gm.get_chapter_progress(chap_idx)
+        start_chunk_idx = 0
+        
+        # --- Context Management ---
+        prev_chunk_last_sentences = "" 
+
+        if progress:
+            saved_size = progress.get("chunk_size", 0)
+            if saved_size == const.CHUNK_SIZE:
+                last_done = progress.get("last_chunk_index", -1)
+                start_chunk_idx = last_done + 1
+                
+                # LOAD CONTEXT FROM CURRENT PROGRESS
+                prev_chunk_last_sentences = progress.get("last_sentences", "")
+
+                if start_chunk_idx < len(chunks):
+                    print(f"   ⏩ Resuming from chunk {start_chunk_idx+1} (Previous progress found).")
+            else:
+                 print(f"   ⚠️ Chunk size changed ({saved_size} -> {const.CHUNK_SIZE}). Restarting chapter.")
+
+        # If starting from scratch (index 0), clear the output file
+        if start_chunk_idx == 0:
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write("") # Clear file
+            
+            # ATTEMPT TO LOAD CONTEXT FROM PREVIOUS CHAPTER
+            if chap_idx > 1:
+                prev_chap_progress = self.gm.get_chapter_progress(chap_idx - 1)
+                if prev_chap_progress:
+                    prev_chunk_last_sentences = prev_chap_progress.get("last_sentences", "")
+                    print(f"   🔗 Context loaded from Chapter {chap_idx - 1}: '{prev_chunk_last_sentences}'")
+
         summary = next((h['summary'] for h in self.gm.local_graph['history'] if h['chapter'] == chap_idx), "")
         
         for idx, chunk in enumerate(chunks):
+            # SKIP if already done
+            if idx < start_chunk_idx:
+                continue
+
             print(f"\t Đang dịch chunk thứ {idx+1}/{len(chunks)} của chapter {chap_idx}")
-            relations = self.gm.get_relations_string(chunk)
-            prompt = build_translation_prompt(chunk, self.gm.glossary, relations, summary, model_type=const.MODEL_TYPE)
             
-            response = self.call_llm_with_retry(prompt, const.TEMP_CREATIVE)
+            # Step 1: Look-ahead NER - Extract entities from current chunk
+            chunk_entities = get_spacy_candidates(chunk)
+            chunk_entities = filter_similar_names(chunk_entities)
             
-            # Post-process (Extract translation only)
-            parts = re.split(r"###\s*BẢN DỊCH", response, flags=re.IGNORECASE)
-            trans_text = parts[1].strip() if len(parts) > 1 else response
-            full_trans += trans_text + "\n\n"
+            # Step 2: Update active memory with found entities (Sliding Window)
+            self.gm.update_active_memory(chunk_entities)
+            
+            # Step 3: Get relations based on active memory (not text matching)
+            relations_data = self.gm.get_relations_data()
+            
+            # =========================================
+            # NEW: Entity Injection Phase
+            # =========================================
+            # Step 4: Run Entity Injection to annotate pronouns with [Name] tags
+            if chunk_entities:
+                # Add placeholders []
+                chunk_with_placeholders = add_placeholder_regex(chunk)
+                num_brackets = chunk_with_placeholders.count("[]")
+                print(f"   ℹ️ Injection: {num_brackets} placeholders identified.")
+
+                if num_brackets == 0:
+                    annotated_chunk = chunk
+                else:
+                    # PREPEND CONTEXT to the prompt text
+                    # Context has NO placeholders, so it won't affect num_brackets count logic for the chunk
+                    if prev_chunk_last_sentences:
+                        text_for_prompt = f"{prev_chunk_last_sentences} {chunk_with_placeholders}"
+                        print(f"   ℹ️ Prepending Context: {prev_chunk_last_sentences[:50]}...")
+                    else:
+                        text_for_prompt = chunk_with_placeholders
+
+                    # Build prompt
+                    injection_prompt = build_entity_injection_prompt(text_for_prompt, chunk_entities, num_brackets)
+                    
+                    while True:
+                        # Single call, no retry loop needed for consistency
+                        print(f"   ℹ️ Injection Prompt Tokens: {count_tokens(injection_prompt)}")
+                        response = self.call_llm_with_retry(
+                            injection_prompt, 
+                            const.TEMP_INJECTION, 
+                            check_chinese=True,
+                            llm_engine=self.injection_llm
+                        )
+
+                        # [FIX] Remove <think>...</think> blocks if they exist
+                        response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+
+                        # Check output items
+                        response_items = re.findall(r"\[.*?\]", response)
+                        output_count = len(response_items)
+                        
+                        if output_count != num_brackets:
+                            print(f"\t   ⚠️ Valid Mismatch (Expected {num_brackets}, Got {output_count}). Auto-retrying...")
+                            continue
+                        
+                        # Reconstruct text (Using ORIGINAL chunk_with_placeholders to discard context)
+                        print(f"\t   ✅ Counts match. Reconstructing text...")
+                        parts = chunk_with_placeholders.split("[]")
+                        reconstructed = ""
+                        for i in range(len(response_items)):
+                            reconstructed += parts[i] + response_items[i]
+                        reconstructed += parts[-1]
+                        
+                        annotated_chunk = reconstructed
+
+                        # --- INTERACTIVE PAUSE FOR INJECTION ---
+                        print(f"\n   --- INJECTION RESULT ---")
+                        print(annotated_chunk)
+                        print(f"   ------------------------")
+                        user_resp = input("   [Injection] Press Enter to continue, 'r' to retry: ")
+                        if user_resp.lower().strip() == 'r':
+                            print("   🔄 Retrying Injection...")
+                            continue
+                        else:
+                            break
+            
+            else:
+                annotated_chunk = chunk  # No entities found, skip injection
+            
+            # Step 5: Build translation prompt with annotated text
+            prompt = build_translation_prompt(
+                annotated_chunk,  # Use annotated text instead of original chunk
+                self.gm.glossary, 
+                relations_data,
+                summary, 
+                model_type=const.MODEL_TYPE
+            )
+            
+            while True:
+                print(f"   ℹ️ Translation Prompt Tokens: {count_tokens(prompt)}")
+                response = self.call_llm_with_retry(prompt, const.TEMP_CREATIVE)
+                
+                # Post-process (Extract translation only)
+                pattern = r"\s*(?:[\#\*]*\s*(?:DỊCH THUẬT|BẢN DỊCH)[\#\*]*)\s*(?:[:\n]|\Z)"
+                parts = re.split(pattern, response, flags=re.IGNORECASE)
+                trans_text = parts[1].strip() if len(parts) > 1 else response
+
+                # Step 6: Clean entity tags from final output
+                clean_trans = clean_entity_tags(trans_text)
+                
+                # --- INTERACTIVE PAUSE FOR TRANSLATION ---
+                print(f"\n   --- TRANSLATION RESULT ---")
+                print(clean_trans)
+                print(f"   --------------------------")
+                user_resp = input("   [Translation] Press Enter to accept, 'r' to retry: ")
+                if user_resp.lower().strip() == 'r':
+                    print("   🔄 Retrying Translation...")
+                    continue
+                else:
+                    break
+            
+            full_trans += clean_trans + "\n\n"
+
+            # --- INCREMENTAL SAVE ---
+            with open(out_path, "a", encoding="utf-8") as f:
+                f.write(clean_trans + "\n\n")
+            
+            # Step 7: Update Context for NEXT chunk (original chunk text)
+            from utils import get_last_sentences
+            current_last_sentences = get_last_sentences(chunk, n=2)
+            prev_chunk_last_sentences = current_last_sentences
+
+            # Update Progress
+            self.gm.update_chapter_progress(chap_idx, idx, const.CHUNK_SIZE, last_sentences=current_last_sentences)
+            print(f"   ✅ Chunk {idx+1} saved.")
             
         return full_trans
 
