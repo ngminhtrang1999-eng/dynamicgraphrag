@@ -225,8 +225,8 @@ def process_chapter(i):
     # Define File Paths
     path_src = f"data/LOTM/chapters/chapter_{i:04d}.txt" 
     path_ref = f"data/LOTM/translations/reference/ref_{i}.txt"
-    path_rag = f"data/LOTM/translations/gemini-2.5-flash_RAG/trans_chap_{i}_gemini2.5-flash_yes.txt"
-    path_no_rag = f"data/LOTM/translations/gemini-2.5-flash_No_RAG/trans_chap_{i}_gemini2.5-flash_no.txt"
+    path_rag = f"data/LOTM/translations/gemini-2.5-pro_RAG/trans_chap_{i}_gemini2.5-pro_yes.txt"
+    path_no_rag = f"data/LOTM/translations/gemini-2.5-pro_No_RAG/trans_chap_{i}_gemini2.5-pro_no.txt"
     path_gg = f"data/LOTM/translations/google_translate/translated_chapter_{i:04d}.txt"
     
     # Verify files exist
@@ -290,7 +290,7 @@ def main():
         os.makedirs(OUTPUT_DIR)
 
     # Use 3 processes as requested
-    num_processes = 3
+    num_processes = 2
     chapters = list(range(1, 11))
 
     print(f"Starting pool with {num_processes} processes for {len(chapters)} chapters...")

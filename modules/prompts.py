@@ -270,7 +270,7 @@ def _format_relations_to_table(relations_data):
     
     # Header bảng
     table = [
-        "| Speaker (Người nói) | Listener (Người nghe) | Call_Listener (Gọi người nghe) | Call_Partner (Gọi người nói) | Self_Speaker (Người nói xưng hô) | Self_Listener (Người gọi xưng hô)",
+        "| Speaker (Người nói) | Listener (Người nghe) | Call_Listener (Gọi người nghe) | Call_Speaker (Gọi người nói) | Self_Speaker (Người nói xưng hô) | Self_Listener (Người gọi xưng hô)",
         "| :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
     
@@ -282,13 +282,13 @@ def _format_relations_to_table(relations_data):
         
         # Mapping aligned with get_relations_data response
         call_listener = r.get('s_call_t', '') # Source gọi Target là gì
-        call_partner = r.get('t_call_s', 'Tôi') # (Tạm dùng logic ngược hoặc default)
+        call_speaker = r.get('t_call_s', 'Tôi') # (Tạm dùng logic ngược hoặc default)
         
         # New: Use explicit call_self derived from logic
         self_speaker = r.get('s_call_self', '')
         self_listener = r.get('t_call_self', '')
         
-        row = f"| {src} | {tgt} | {call_listener} | {call_partner} | {self_speaker} | {self_listener} |"
+        row = f"| {src} | {tgt} | {call_listener} | {call_speaker} | {self_speaker} | {self_listener} |"
         table.append(row)
         
     return "\n".join(table)
@@ -495,3 +495,177 @@ Instruction: Compare Translation A and Translation B. Decide which is better bas
 ]
 
     return messages
+
+
+# --- Helper: Build Draft Translation Prompt (Phase 1 - Drafting) ---
+def build_draft_translation_prompt(chunk_text, prev_context=""):
+    """
+    Build prompt for Phase 1 (Drafting) - Pure literary translation.
+    No entity tags, no glossary constraints. Focus on fluency.
+    
+    Args:
+        chunk_text: The source text to translate
+        prev_context: Optional context from previous chunk (last 2 sentences)
+        
+    Returns:
+        list: Messages for LLM call
+    """
+    system_prompt = """
+<role_definition>
+Bạn là Tiểu thuyết gia chuyên nghiệp, chuyên dịch tiểu thuyết Fantasy/Mystery.
+Nhiệm vụ: Dịch văn bản sang Tiếng Việt với văn phong trôi chảy, tự nhiên nhất.
+</role_definition>
+
+<style_guide>
+- Văn phong: Tiểu thuyết phương Tây, bí ẩn, lôi cuốn
+- Ưu tiên: Độ mượt mà, tự nhiên của câu văn
+- KHÔNG cần tuân theo bất kỳ quy tắc xưng hô hay thuật ngữ cố định nào
+- Dịch thoát ý, tránh dịch word-by-word
+</style_guide>
+
+<output_format>
+Chỉ trả về bản dịch, không cần phân tích hay giải thích.
+</output_format>
+"""
+    
+    context_section = f"\n<previous_context>\n{prev_context}\n</previous_context>\n" if prev_context else ""
+    
+    user_content = f"""
+{context_section}
+<input_text>
+{chunk_text}
+</input_text>
+"""
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content}
+    ]
+
+
+# --- Helper: Build Post-Editing Prompt (Phase 2 - Editing) ---
+def build_post_editing_prompt(source_text, draft_text, injected_reference, glossary, relations):
+    """
+    Build prompt for Phase 2 (Post-Editing) - Refine draft with entity context.
+    
+    Args:
+        source_text: Original source text (unused, kept for compatibility)
+        draft_text: Draft translation from Phase 1
+        injected_reference: Text with [Entity] annotations for reference
+        glossary: Dict of {English term: Vietnamese translation}
+        relations: List of relation dicts with pronoun rules
+        
+    Returns:
+        list: Messages for LLM call
+    """
+    # Format glossary as bullet points (only relevant terms)
+    glossary_str = "\n".join([f"- {en} → {vi}" for en, vi in glossary.items()]) if glossary else "Không có thuật ngữ đặc biệt."
+    
+    # Format relations as table (same as _format_relations_to_table)
+    relations_table = _format_relations_to_table(relations)
+    
+    # Check if source has entity tags
+    has_entity_tags = "[" in injected_reference and "]" in injected_reference
+    has_relations = bool(relations_table)
+    
+    # Use injected_reference as the source (it contains [Entity] tags)
+    # Fallback to original source_text if no tags present
+    if has_entity_tags:
+        annotated_source = injected_reference
+    else:
+        annotated_source = source_text
+    
+    # Build constraints based on what's available
+    # Tag rules: only if has_entity_tags
+    # Relationship reference: only if has_relations
+    
+    if has_entity_tags:
+        if has_relations:
+            # Has tags AND relations: full explanation
+            tag_rules = """
+1. HIỂU VỀ TAG [Tên]: Trong <source_text>, các đại từ (he, she, him, her...) được gắn tag [Tên nhân vật] để chỉ rõ đại từ đó đang nói về AI.
+   - Ví dụ: "He [Klein] said..." nghĩa là "He" ở đây chính là nhân vật Klein.
+   - Dùng thông tin này để xác định đúng đại từ xưng hô tiếng Việt theo <relationship_matrix>.
+
+2. CÁCH SỬ DỤNG TAG:
+   - Tra cứu tên trong tag [Tên] với <relationship_matrix> để biết nhân vật đó tự xưng là gì, gọi người khác là gì.
+   - Áp dụng vào bản dịch: Thay "anh ấy/cô ấy" bằng đại từ phù hợp (Tôi, Hắn, Ngài...).
+"""
+            fix_rules = """
+4. CHỈ SỬA các lỗi về:
+   - Thuật ngữ (theo <glossary>)
+   - Đại từ xưng hô (theo <relationship_matrix> và tag [Tên])
+"""
+        else:
+            # Has tags but NO relations: explain tags but don't mention relationship_matrix
+            tag_rules = """
+1. HIỂU VỀ TAG [Tên]: Trong <source_text>, các đại từ (he, she, him, her...) được gắn tag [Tên nhân vật] để chỉ rõ đại từ đó đang nói về AI.
+   - Ví dụ: "He [Klein] said..." nghĩa là "He" ở đây chính là nhân vật Klein.
+   - Dùng tag này để xác định ai đang nói/hành động, nhưng KHÔNG có thông tin xưng hô cụ thể.
+"""
+            fix_rules = """
+3. CHỈ SỬA các lỗi về thuật ngữ (theo <glossary>).
+"""
+    else:
+        # No tags: simple mode
+        tag_rules = ""
+        fix_rules = """
+2. CHỈ SỬA các lỗi về thuật ngữ (theo <glossary>).
+"""
+    
+    # Build relationship_matrix section only if has_relations
+    if has_relations:
+        relationship_section = f"""
+<relationship_matrix>
+{relations_table}
+</relationship_matrix>"""
+    else:
+        relationship_section = ""
+    
+    # Assemble constraints
+    base_rules = """
+3. GIỮ NGUYÊN văn phong và cách hành văn của bản nháp khi nó đã đúng.
+""" if has_entity_tags else """
+1. GIỮ NGUYÊN văn phong và cách hành văn của bản nháp khi nó đã đúng.
+"""
+    
+    no_hallucination = """
+5. KHÔNG thêm thông tin mới, KHÔNG bịa đặt nội dung.
+""" if has_entity_tags and has_relations else """
+4. KHÔNG thêm thông tin mới, KHÔNG bịa đặt nội dung.
+""" if has_entity_tags else """
+3. KHÔNG thêm thông tin mới, KHÔNG bịa đặt nội dung.
+"""
+    
+    constraints = f"""
+<critical_constraints>
+{tag_rules}{base_rules}{fix_rules}{no_hallucination}</critical_constraints>"""
+    
+    system_prompt = f"""
+<role_definition>
+Bạn là Biên tập viên Văn học chuyên nghiệp.
+Nhiệm vụ: Chỉnh sửa bản dịch nháp để đảm bảo tính nhất quán về thuật ngữ và đại từ xưng hô.
+</role_definition>
+
+{constraints}
+
+<glossary>
+{glossary_str}
+</glossary>
+{relationship_section}
+"""
+
+    user_content = f"""
+<source_text>
+{annotated_source}
+</source_text>
+
+<draft_translation>
+{draft_text}
+</draft_translation>
+
+Hãy chỉnh sửa <draft_translation> dựa trên các quy tắc trên. Chỉ trả về bản dịch đã chỉnh sửa.
+"""
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content}
+    ]

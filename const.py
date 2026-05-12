@@ -14,7 +14,7 @@ MAX_NEW_TOKENS = 16000
 
 # Gemini Config
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") # Hãy set biến môi trường hoặc điền key vào đây
-GEMINI_MODEL_NAME = "gemini-2.5-flash" # Hoặc gemini-2.5-pro # Cho evaluate: "gemini-3-pro-preview"
+GEMINI_MODEL_NAME = "gemini-2.5-pro" # Hoặc gemini-2.5-pro # Cho evaluate: "gemini-3-pro-preview"
 
 MODEL_TYPE = "strong"
 
@@ -37,12 +37,15 @@ CLOUDFARE_ACCOUNT_ID = os.getenv("CLOUDFARE_ACCOUNT_ID", "")
 
 # Strategy Params
 WINDOW_SIZE = 5
-START_CHAPTER = 1
+START_CHAPTER = 6
 END_CHAPTER = 10
-CHUNK_SIZE = 300 
-CHUNK_SIZE_MINING = 500 
+# CHUNK_SIZE = 300 
+# CHUNK_SIZE_MINING = 500
+CHUNK_SIZE = 500 
+CHUNK_SIZE_MINING = 700  
 
 # Temperature Strategy
 TEMP_MINING = 0.8
 TEMP_INJECTION = 0.1  # Low temperature for deterministic entity annotation
 TEMP_CREATIVE = 1.3
+TEMP_EDITING = 1.3  # Low temperature for deterministic post-editing

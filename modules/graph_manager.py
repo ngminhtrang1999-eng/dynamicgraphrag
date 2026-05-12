@@ -158,6 +158,62 @@ class GraphManager:
         
         return relations
 
+    def get_relevant_context(self, chunk_text):
+        """
+        Filter glossary and relations to only include items relevant to current chunk.
+        
+        Args:
+            chunk_text: The current chunk text
+            
+        Returns:
+            Tuple[dict, list]: (filtered_glossary, filtered_relations)
+            
+        Note:
+            Simple substring matching may cause false positives (e.g., "ear" matches "bear").
+            Acceptable for thesis scope; consider regex \bterm\b for stricter matching if needed.
+        """
+        chunk_lower = chunk_text.lower()
+        
+        # Filter glossary: only terms that appear in chunk (simple substring match)
+        filtered_glossary = {}
+        for term, translation in self.glossary.items():
+            if term.lower() in chunk_lower:
+                filtered_glossary[term] = translation
+        
+        # Filter relations: Get from active memory first
+        all_relations = self.get_relations_data()
+        
+        # Stopwords to skip when matching first name
+        stopwords = {'the', 'a', 'an', 'of', 'and', 'or'}
+        
+        # Helper: Check if entity name appears in text (handles "Klein" matching "Klein Moretti")
+        def entity_in_text(entity_name, text_lower):
+            if not entity_name:
+                return False
+            # Check full name
+            if entity_name.lower() in text_lower:
+                return True
+            # Get significant words (skip stopwords)
+            words = [w for w in entity_name.split() if w.lower() not in stopwords]
+            if not words:
+                return False
+            # Check first significant word (e.g., "The Fool" -> check "Fool")
+            first_significant = words[0]
+            if first_significant.lower() in text_lower:
+                return True
+            return False
+        
+        # Filter: only keep relations where BOTH entities appear in chunk
+        filtered_relations = []
+        for r in all_relations:
+            src = r.get("source", "")
+            tgt = r.get("target", "")
+            # Require BOTH source and target to appear in chunk
+            if entity_in_text(src, chunk_lower) and entity_in_text(tgt, chunk_lower):
+                filtered_relations.append(r)
+        
+        return filtered_glossary, filtered_relations
+
     # --- CORE GRAPH LOGIC (Moved from test.py) ---
     def resolve_entity_name(raw_name, existing_nodes):
         """Logic hợp nhất tên (Entity Resolution)"""
@@ -237,6 +293,19 @@ class GraphManager:
         Tự động phát hiện tên dài/ngắn để gộp node và cập nhật quan hệ (Nodes + Edges).
         """
         if not updates: return self.global_graph
+        
+        # --- FIX: Handle List Input (LLM fallback) ---
+        if isinstance(updates, list):
+            # Case 1: List containing the data dict -> [{"nodes": ...}]
+            if len(updates) > 0 and isinstance(updates[0], dict) and "nodes" in updates[0]:
+                updates = updates[0]
+            # Case 2: List of nodes directly -> [{"id": "Klein", ...}, {"id": "Dunn", ...}]
+            elif all(isinstance(x, dict) and "id" in x for x in updates):
+                updates = {"nodes": updates, "edges": []}
+            else:
+                 # print(f"      ⚠️ Warning: `updates` is a list with unknown format. Using empty dict.")
+                 # updates = {}
+                 raise ValueError("Invalid JSON format: List with unknown structure")
 
         candidates_lower = [c.lower() for c in candidates]
         

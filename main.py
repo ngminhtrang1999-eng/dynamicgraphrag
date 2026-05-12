@@ -4,7 +4,7 @@ import re
 import const
 from modules.graph_manager import GraphManager
 from core.llm_backend import LocalQwenLLM, GeminiAPILLM, GroqLLM, OpenRouterLLM, LangDBLLM, NVIDIALLM, CloudfareLLM
-from core.pipeline import GraphRAGPipeline, SimplePipeline
+from core.pipeline import GraphRAGPipeline, SimplePipeline, PostEditingPipeline
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Novel Translation System")
@@ -12,10 +12,17 @@ def parse_args():
         "--model", 
         type=str, 
         choices=["qwen", "qwen3-32b" ,"gemini2.5-flash", "gemini2.5-pro", "llama3.1-8b", "llama3.3-70b", "gemma3-27B", "gemma3-12b", "llama-4-maverick-17b-128e", "qwen3-235b-a22b", "deepseek-v3.1"], 
-        default="gemini2.5-flash", 
+        default="gemini2.5-pro", 
         help="Choose LLM Backend"
     )
     parser.add_argument("--rag", type=str, choices=["yes", "no"], default="yes", help="Enable Graph RAG?")
+    parser.add_argument(
+        "--pipeline", 
+        type=str, 
+        choices=["graphrag", "postedit", "simple"], 
+        default="postedit", 
+        help="Pipeline type: graphrag (old), postedit (new draft-edit), simple (no RAG)"
+    )
     return parser.parse_args()
 
 def main():
@@ -71,19 +78,19 @@ def main():
     # 4. Factory: Initialize Pipeline Strategy
     if args.rag == "yes":
         # Injection Model Strategy:
-        # If the main model is already Local Qwen (LocalQwenLLM), reuse it.
-        # Otherwise, initialize a dedicated LocalQwenLLM instance for injection.
         if isinstance(llm, LocalQwenLLM):
             injection_llm = llm
         else:
-            print("⏳ INITIALIZING INJECTION MODEL (Local Qwen)...")
-            # Note: This will load a second model into memory if the first one is also a local model (different instance).
-            # Assuming user has enough VRAM if they are running a local model + local qwen.
-            # If main model is API-based (e.g. Gemini), this just adds text-generation-webui/transformers overhead.
-            # injection_llm = LocalQwenLLM()
+            print("⏳ INJECTION MODEL: Using main LLM for injection.")
             injection_llm = llm
 
-        pipeline = GraphRAGPipeline(llm, gm, injection_llm=injection_llm)
+        # Select pipeline based on --pipeline argument
+        if args.pipeline == "postedit":
+            print("📌 Using PostEditing Pipeline (Draft-then-Edit)")
+            pipeline = PostEditingPipeline(llm, gm, injection_llm=injection_llm)
+        else:
+            print("📌 Using GraphRAG Pipeline (Single-Pass Injection)")
+            pipeline = GraphRAGPipeline(llm, gm, injection_llm=injection_llm)
     else:
         pipeline = SimplePipeline(llm, gm)
 
