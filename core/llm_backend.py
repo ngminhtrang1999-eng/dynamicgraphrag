@@ -1,6 +1,7 @@
 
 import const
 import os
+import re
 import time  # [NEW] Import time để dùng sleep
 import requests
 import json
@@ -8,6 +9,18 @@ import utils
 from abc import ABC, abstractmethod
 from openai import OpenAI
 # [Existing imports...]
+
+
+def _strip_reasoning_blocks(text: str) -> str:
+    """Strip <think>...</think> blocks emitted by reasoning models (Qwen3, DeepSeek-R1, QwQ).
+
+    Why: these blocks pollute downstream parsing (entity-injection bracket counting,
+    translation post-processing). Existing GraphRAGPipeline already strips them at one
+    call site; doing it at the backend level guarantees consistent behavior.
+    """
+    if not text:
+        return text
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
 class BaseLLM(ABC):
@@ -236,6 +249,68 @@ class NVIDIALLM(BaseLLM):
         except Exception as e:
             print(f"   ⚠️ Nvidia API Error: {e}")
             raise e
+
+class OllamaLLM(BaseLLM):
+    """Local Ollama backend via OpenAI-compatible /v1 endpoint.
+
+    Replaces LocalQwenLLM (transformers + bitsandbytes). Advantages:
+    - Easy model swap: `ollama pull <name>` and pass model_name here.
+    - GGUF quantization handled internally; lower VRAM than raw fp16/bnb.
+    - Server runs in background, no per-process model load cost.
+    """
+    def __init__(self, model_name="qwen3:8b", base_url=None):
+        self.model_name = model_name
+        base = base_url or const.OLLAMA_BASE_URL
+        print(f"⏳ INITIALIZING OLLAMA ({self.model_name} @ {base})...")
+        self.client = OpenAI(
+            base_url=f"{base.rstrip('/')}/v1",
+            api_key="ollama",  # Required by SDK; Ollama ignores the value.
+        )
+
+    def generate(self, messages, temperature=0.3):
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=const.MAX_NEW_TOKENS,
+            )
+            return _strip_reasoning_blocks(response.choices[0].message.content)
+        except Exception as e:
+            print(f"   ⚠️ Ollama Error ({self.model_name}): {e}")
+            raise e
+
+
+class OpenAICompatLLM(BaseLLM):
+    """Generic OpenAI-compatible client for paid/cheap API providers.
+
+    Designed for the **judge** role (B framework): cheap strong model that scores
+    translations produced by local Ollama models. Works with DeepSeek API direct,
+    OpenRouter, Together, Fireworks, etc. — anything that exposes /v1/chat/completions.
+    """
+    def __init__(self, model_name, base_url, api_key, rate_limit_sleep=0):
+        if not api_key:
+            raise ValueError(f"⚠️ Missing API key for {model_name} @ {base_url}")
+        self.model_name = model_name
+        self.rate_limit_sleep = rate_limit_sleep
+        print(f"⏳ INITIALIZING OpenAI-Compat ({self.model_name} @ {base_url})...")
+        self.client = OpenAI(base_url=base_url, api_key=api_key)
+
+    def generate(self, messages, temperature=0.3):
+        if self.rate_limit_sleep > 0:
+            time.sleep(self.rate_limit_sleep)
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=const.MAX_NEW_TOKENS,
+            )
+            return _strip_reasoning_blocks(response.choices[0].message.content)
+        except Exception as e:
+            print(f"   ⚠️ {self.model_name} Error: {e}")
+            raise e
+
 
 class CloudfareLLM(BaseLLM):
     def __init__(self, model_name="@cf/meta/llama-3-8b-instruct"):

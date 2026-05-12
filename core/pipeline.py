@@ -13,9 +13,10 @@ except:
     nlp = spacy.load("en_core_web_sm")
 
 class BasePipeline(ABC):
-    def __init__(self, llm_backend, graph_manager):
+    def __init__(self, llm_backend, graph_manager, non_interactive=False):
         self.llm = llm_backend
         self.gm = graph_manager
+        self.non_interactive = non_interactive
 
     @abstractmethod
     def process_chapter(self, text, chap_idx):
@@ -39,8 +40,8 @@ class BasePipeline(ABC):
         raise RuntimeError("LLM retry failed after maximum attempts.")
 
 class GraphRAGPipeline(BasePipeline):
-    def __init__(self, llm_backend, graph_manager, injection_llm=None):
-        super().__init__(llm_backend, graph_manager)
+    def __init__(self, llm_backend, graph_manager, injection_llm=None, non_interactive=False):
+        super().__init__(llm_backend, graph_manager, non_interactive=non_interactive)
         self.injection_llm = injection_llm
 
     def process_chapter(self, text, chap_idx, out_path):
@@ -56,9 +57,10 @@ class GraphRAGPipeline(BasePipeline):
             print("   ⏭️  Phase 1 Skipped (Already processed).")
 
         # --- MANUAL PAUSE & RELOAD ---
-        print("\n   ⏸️  Paused. You can now edit 'term_glossary.json' or 'global_graph.json'.")
-        user_input = input("   Press Enter (or 'c') to continue to Phase 2, or Ctrl+C to exit: ")
-        
+        if not self.non_interactive:
+            print("\n   ⏸️  Paused. You can now edit 'term_glossary.json' or 'global_graph.json'.")
+            input("   Press Enter (or 'c') to continue to Phase 2, or Ctrl+C to exit: ")
+
         print("   🔄 Reloading graph data from disk...")
         self.gm.load_data()
         print("   ✅ Data reloaded.")
@@ -235,7 +237,10 @@ class GraphRAGPipeline(BasePipeline):
                         print(f"\n   --- INJECTION RESULT ---")
                         print(annotated_chunk)
                         print(f"   ------------------------")
-                        user_resp = input("   [Injection] Press Enter to continue, 'r' to retry: ")
+                        if self.non_interactive:
+                            user_resp = ""
+                        else:
+                            user_resp = input("   [Injection] Press Enter to continue, 'r' to retry: ")
                         if user_resp.lower().strip() == 'r':
                             print("   🔄 Retrying Injection...")
                             continue
@@ -270,7 +275,10 @@ class GraphRAGPipeline(BasePipeline):
                 print(f"\n   --- TRANSLATION RESULT ---")
                 print(clean_trans)
                 print(f"   --------------------------")
-                user_resp = input("   [Translation] Press Enter to accept, 'r' to retry: ")
+                if self.non_interactive:
+                    user_resp = ""
+                else:
+                    user_resp = input("   [Translation] Press Enter to accept, 'r' to retry: ")
                 if user_resp.lower().strip() == 'r':
                     print("   🔄 Retrying Translation...")
                     continue
@@ -305,8 +313,8 @@ class PostEditingPipeline(BasePipeline):
         - Step B: Entity injection (reference generation)
         - Step C: Post-editing (fix pronouns/terminology)
     """
-    def __init__(self, llm_backend, graph_manager, injection_llm=None):
-        super().__init__(llm_backend, graph_manager)
+    def __init__(self, llm_backend, graph_manager, injection_llm=None, non_interactive=False):
+        super().__init__(llm_backend, graph_manager, non_interactive=non_interactive)
         self.injection_llm = injection_llm
 
     def process_chapter(self, text, chap_idx, out_path):
@@ -322,9 +330,10 @@ class PostEditingPipeline(BasePipeline):
             print("   ⏭️  Phase 1 Skipped (Already processed).")
 
         # --- MANUAL PAUSE & RELOAD ---
-        print("\n   ⏸️  Paused. You can now edit 'term_glossary.json' or 'global_graph.json'.")
-        user_input = input("   Press Enter (or 'c') to continue to Phase 2, or Ctrl+C to exit: ")
-        
+        if not self.non_interactive:
+            print("\n   ⏸️  Paused. You can now edit 'term_glossary.json' or 'global_graph.json'.")
+            input("   Press Enter (or 'c') to continue to Phase 2, or Ctrl+C to exit: ")
+
         print("   🔄 Reloading graph data from disk...")
         self.gm.load_data()
         print("   ✅ Data reloaded.")
@@ -512,7 +521,10 @@ class PostEditingPipeline(BasePipeline):
             print(f"\n   --- FINAL ---")
             print(final_trans)
             print(f"   --------------------------")
-            user_resp = input("   [Translation] Press Enter to accept, 'r' to retry: ")
+            if self.non_interactive:
+                user_resp = ""
+            else:
+                user_resp = input("   [Translation] Press Enter to accept, 'r' to retry: ")
             if user_resp.lower().strip() == 'r':
                 print("   🔄 Retrying...")
                 continue

@@ -3,25 +3,38 @@ import os
 import re
 import const
 from modules.graph_manager import GraphManager
-from core.llm_backend import LocalQwenLLM, GeminiAPILLM, GroqLLM, OpenRouterLLM, LangDBLLM, NVIDIALLM, CloudfareLLM
+from core.llm_backend import LocalQwenLLM, GeminiAPILLM, GroqLLM, OpenRouterLLM, LangDBLLM, NVIDIALLM, CloudfareLLM, OllamaLLM, OpenAICompatLLM
 from core.pipeline import GraphRAGPipeline, SimplePipeline, PostEditingPipeline
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Novel Translation System")
     parser.add_argument(
-        "--model", 
-        type=str, 
-        choices=["qwen", "qwen3-32b" ,"gemini2.5-flash", "gemini2.5-pro", "llama3.1-8b", "llama3.3-70b", "gemma3-27B", "gemma3-12b", "llama-4-maverick-17b-128e", "qwen3-235b-a22b", "deepseek-v3.1"], 
-        default="gemini2.5-pro", 
+        "--model",
+        type=str,
+        choices=[
+            "qwen", "qwen3-32b", "gemini2.5-flash", "gemini2.5-pro",
+            "llama3.1-8b", "llama3.3-70b", "gemma3-27B", "gemma3-12b",
+            "llama-4-maverick-17b-128e", "qwen3-235b-a22b", "deepseek-v3.1",
+            # Local via Ollama (thesis baseline experiments)
+            "qwen3-8b-local", "llama3.1-8b-local", "gemma3-4b-local",
+            # Paid API for judge / strong baseline
+            "deepseek-chat",
+        ],
+        default="qwen3-8b-local",
         help="Choose LLM Backend"
     )
     parser.add_argument("--rag", type=str, choices=["yes", "no"], default="yes", help="Enable Graph RAG?")
     parser.add_argument(
-        "--pipeline", 
-        type=str, 
-        choices=["graphrag", "postedit", "simple"], 
-        default="postedit", 
+        "--pipeline",
+        type=str,
+        choices=["graphrag", "postedit", "simple"],
+        default="postedit",
         help="Pipeline type: graphrag (old), postedit (new draft-edit), simple (no RAG)"
+    )
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Skip all input() pauses for batch runs (ablation studies, eval pipelines)",
     )
     return parser.parse_args()
 
@@ -72,6 +85,20 @@ def main():
         llm = OpenRouterLLM(model_name="qwen/qwen3-235b-a22b:free")
     elif args.model == "deepseek-v3.1":
         llm = NVIDIALLM(model_name="deepseek-ai/deepseek-v3.1-terminus")
+    # --- Local via Ollama ---
+    elif args.model == "qwen3-8b-local":
+        llm = OllamaLLM(model_name="qwen3:8b")
+    elif args.model == "llama3.1-8b-local":
+        llm = OllamaLLM(model_name="llama3.1:8b")
+    elif args.model == "gemma3-4b-local":
+        llm = OllamaLLM(model_name="gemma3:4b")
+    # --- Paid API (judge / strong baseline) ---
+    elif args.model == "deepseek-chat":
+        llm = OpenAICompatLLM(
+            model_name="deepseek-chat",
+            base_url=const.DEEPSEEK_BASE_URL,
+            api_key=const.DEEPSEEK_API_KEY,
+        )
     else:
         raise ValueError(f"Unknown model argument: {args.model}")
 
@@ -87,12 +114,12 @@ def main():
         # Select pipeline based on --pipeline argument
         if args.pipeline == "postedit":
             print("📌 Using PostEditing Pipeline (Draft-then-Edit)")
-            pipeline = PostEditingPipeline(llm, gm, injection_llm=injection_llm)
+            pipeline = PostEditingPipeline(llm, gm, injection_llm=injection_llm, non_interactive=args.non_interactive)
         else:
             print("📌 Using GraphRAG Pipeline (Single-Pass Injection)")
-            pipeline = GraphRAGPipeline(llm, gm, injection_llm=injection_llm)
+            pipeline = GraphRAGPipeline(llm, gm, injection_llm=injection_llm, non_interactive=args.non_interactive)
     else:
-        pipeline = SimplePipeline(llm, gm)
+        pipeline = SimplePipeline(llm, gm, non_interactive=args.non_interactive)
 
     # 5. Processing Loop
     all_files = sorted([f for f in os.listdir(const.INPUT_DIR) if f.endswith(".txt")])
