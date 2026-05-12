@@ -1,174 +1,95 @@
-Refactoring Strategy: Dynamic GraphRAG "Draft-then-Edit" Pipeline
-1. Executive Strategy & Purpose
-Mục tiêu: Tối ưu hóa sự đánh đổi giữa Độ trôi chảy (Fluency) và Tính nhất quán (Consistency) trong hệ thống dịch thuật tiểu thuyết sử dụng LLM nhỏ (7B-8B parameters).
+# Thesis Plan — Dynamic GraphRAG for Vietnamese Literary MT
 
-Vấn đề hiện tại (Single-Pass Injection):
+**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-13
 
-Việc chèn thẻ [Entity] trực tiếp vào văn bản gốc (He [Klein] looked...) làm gián đoạn luồng ngôn ngữ tự nhiên, khiến các model nhỏ bị "rối" (perplexity cao), dẫn đến câu văn sượng hoặc ảo giác (hallucination).
+> Resume note: this document captures where the project stands and what to do next.
+> Read this first when starting a new session. Memory entries (in `~/.claude/...`)
+> describe the user, environment, and durable decisions; this file describes
+> in-flight thesis work.
 
-Kết quả: Điểm M-ETA (Entity Accuracy) cao nhưng BLEURT/COMET (Fluency) thấp hơn so với dịch thường.
+---
 
-Giải pháp chiến lược (Two-Pass Post-Editing): Chuyển đổi sang kiến trúc "Dịch trước - Sửa sau":
+## Thesis shape
 
-Pass 1 (Drafting): Dịch thuần túy (Clean Input) để tối đa hóa Fluency.
+- **Contribution A (main): smarter dynamic RAG for EN→VI literary MT with small LLMs.**
+  Three components designed to ablate independently.
+- **Contribution B (supporting): evaluation framework for literary MT.**
+  Reference-based LLM-judge on 5 literary axes, validated by human pairwise blind.
 
-Pass 2 (Editing): Sử dụng Graph Context (Entity Injection + Glossary) làm Metadata tham chiếu để chỉnh sửa lại bản nháp, đảm bảo Consistency.
+## Runtime stack
 
-2. Architecture & Data Flow
-Quy trình cũ (Deprecated for Logic):
-Source + [Injection] -> LLM -> Translation
+- Translation: WSL Ollama serving `qwen3:8b`, `llama3.1:8b`, `gemma3:4b` at `localhost:11434`.
+- Judge: OpenAI-compat (default OpenRouter `z-ai/glm-4.5-air:free`); switchable to DeepSeek paid API once purchased.
+- Python: WSL miniconda env `graphrag` (Python 3.11, has openai/spacy/torch+CUDA/transformers/dotenv). Activate:
+  ```
+  source ~/miniconda3/etc/profile.d/conda.sh && conda activate graphrag
+  cd "/mnt/d/Dynamic GraphRAG"
+  ```
 
-Quy trình mới (Target):
-Step A (Drafting): Clean Source -> LLM (Creative Mode) -> Draft Translation
+## Status snapshot
 
-Step B (Context Prep): Clean Source -> Injection LLM -> Injected Text (Reference Only)
+| Phase | State | Commit |
+|---|---|---|
+| Week 0 — unblock batch experiments | done | `2a7cd06` |
+| Week 1 — B framework MVP | done | `b93341f` |
+| Week 1 validation — human spot-check | **pending USER** (`evaluation/llm_judge/spot_check_for_review.csv`) |  |
+| Week 2 — A3 Translation Memory | not started |  |
+| Week 3 — A1 Hierarchical retrieval | not started |  |
+| Week 4 — A2 Coreference retrieval | not started |  |
+| Week 5 — full ablation + B framework scale-up | not started |  |
+| Week 6 — write-up | not started |  |
 
-Step C (Editing): Source + Draft + Reference + Graph Rules -> LLM (Strict Mode) -> Final Translation
+## Pending USER action
 
-3. Implementation Plan (Step-by-Step)
-Step 1: Implement "Drafting" Prompt (Phase 1)
-Purpose: Tạo ra một bản dịch tự nhiên nhất có thể, không bị gò bó bởi các luật lệ kỹ thuật.
+1. Open `evaluation/llm_judge/spot_check_for_review.csv` in Excel/Sheets.
+2. For each of 14 pairs: read source + reference + candidate_A + candidate_B → fill `your_choice` with `A`, `B`, or `tie`.
+3. Save. **Do not** open `spot_check_key.csv` until done.
+4. Next session: run `python score_spot_check.py --review ... --key ... --scores ...` (see script `--help`) to compute agreement. Target ≥70% — if below, refine judge rubric before scaling B framework.
 
-Input:
+## A framework — sub-components and rationale
 
-chunk_text: Văn bản gốc sạch sẽ.
+### A3 — Translation Memory (do first)
 
-prev_context: 1-2 câu cuối của chunk trước (để giữ mạch văn).
+- Maintain a sentence-level index of past translations judged high-quality (judge mean ≥ 4.0 across axes, or curated reference seeds in chapter 1).
+- LaBSE-embed source sentence → cosine top-k (k=2-3) → inject as few-shot examples in `build_post_editing_prompt` and/or `build_draft_translation_prompt`.
+- LaBSE already in HF cache at `~/.cache/huggingface/hub/models--sentence-transformers--LaBSE` (~1.8GB).
+- Storage: numpy array + JSON metadata in `data/knowledge_base/<experiment>/translation_memory.{npy,json}`. No FAISS needed at thesis scale.
+- Cold-start: seed with first ~50 sentences from `evaluation/alignment_results_*/aligned_master_chap_1.csv` `ref` column (gold humans).
+- Expected impact: largest on `fluency`, `style`. Convergence to consistent voice as chapters accumulate is itself the headline result.
 
-Prompt Logic: Role "Tiểu thuyết gia". Yêu cầu dịch thoát ý, trôi chảy. Tuyệt đối không đưa JSON/Graph vào đây.
+### A1 — Hierarchical retrieval (do second)
 
-Expected Output: Bản dịch tiếng Việt mượt mà (có thể sai đại từ nhân xưng, sai thuật ngữ).
+- Extraction prompt (`build_extraction_prompt`, `build_glossary_extraction_prompt`) already categorizes entities (PERSON/DEITY/ORG/LOCATION/CONCEPT) but **does not persist the type**.
+- Update `graph_manager` schema: `glossary: {term: {translation, type}}` (currently flat `{term: translation}`). Migration: existing entries → `type: "UNKNOWN"`.
+- Update `get_relevant_context` to return `dict[type, dict[term, translation]]`.
+- Update injection / post-edit prompts to render glossary as separate sections.
+- Expected impact: moderate, mainly readability for the LLM in long-glossary chunks.
 
-Step 2: Implement "Look-ahead" Context Preparation
-Purpose: Tận dụng lại logic Entity Injection hiện có nhưng đổi mục đích sử dụng. Thay vì sửa input để dịch, ta dùng nó làm "Bằng chứng" cho Editor.
+### A2 — Coreference-aware retrieval (do last)
 
-Action:
+- Replace/augment the current "spaCy NER → entity-injection LLM call" with a proper coref model (`fastcoref` recommended — Hugging Face, LingMess-RoBERTa under the hood).
+- Resolve pronouns → entity mentions before retrieval, so glossary filtering can be tight.
+- New dependency: `fastcoref` (~500MB). Run as CPU-side preprocessing step per chunk; cache resolution to skip re-runs.
+- Expected impact: targets `register` axis (xưng hô) and reduces the `[Entity]` tag leak into final output observed in smoke test (chunk 5 had `anh [Alger]` leaking through post-editing).
 
-Giữ nguyên hàm gọi injection_llm.
+## Existing infrastructure (Week 0)
 
-Input: chunk_text.
+- `core/llm_backend.py`: `OllamaLLM` and `OpenAICompatLLM` classes. Both strip `<think>...</think>` blocks at backend level for reasoning models.
+- `main.py`: choices include `qwen3-8b-local`, `llama3.1-8b-local`, `gemma3-4b-local`, `deepseek-chat`. `--non-interactive` flag for unattended batch runs.
+- `core/pipeline.py`: `PostEditingPipeline` (Draft → Inject → Edit) gated for non-interactive; reuses mining logic from `GraphRAGPipeline`.
+- `const.py`: `TEMP_EDITING=0.3`, `MAX_NEW_TOKENS=2000` (tuned 2026-05-12). `OLLAMA_BASE_URL`, `DEEPSEEK_*` config added.
+- `batch_evaluate_LLM_judge.py`: resume-capable runner. Reads `evaluation/alignment_results_<system>/aligned_master_chap_<N>.csv`, scores RAG/No_RAG/GG columns, writes to `evaluation/llm_judge/scores_<system>_<judge>.csv`.
+- `analyze_judge_scores.py`: per-(candidate, axis) mean/std summary.
+- `generate_spot_check.py` + `score_spot_check.py`: human validation pipeline for the judge.
 
-Output: injected_text (VD: "He [Klein] said to him [Dunn]").
+## Smoke test verification
 
-Lưu ý: Biến này sẽ KHÔNG được đưa vào Prompt Drafting, mà được chuyển thẳng xuống bước Editing.
+- Translation pipeline (qwen3:8b on chapter 6, non-interactive) ran end-to-end: 6 Vietnamese chunks generated. Identified issues (research signals, not bugs): some CJK characters leaked (Qwen3 bilingual emission), entity tags leaked in chunk 5 (motivates A2), name romanization inconsistent (motivates A3 memory).
+- Judge framework on n=47: GG=4.58, RAG=4.34, No_RAG=3.81. Discriminates meaningfully.
 
-Step 3: Implement "Post-Editing" Prompt (Phase 2)
-Purpose: Sửa lỗi bản nháp dựa trên bằng chứng và luật.
+## Next session checklist
 
-Input:
-
-source_text: Văn bản gốc.
-
-draft_text: Kết quả từ Step 1.
-
-reference_text: Kết quả từ Step 2 (injected_text).
-
-rule_set: Glossary và Relations đã được lọc (filtered) chỉ chứa các thực thể xuất hiện trong chunk.
-
-Prompt Logic: Role "Biên tập viên".
-
-Nhiệm vụ: So sánh Draft với Reference và Rules.
-
-Constraint: CHỈ sửa chỗ sai (thuật ngữ, xưng hô). GIỮ NGUYÊN văn phong chỗ đúng.
-
-Expected Output: Bản dịch hoàn chỉnh, văn phong mượt (từ Step 1) và đúng xưng hô (từ Step 3).
-
-4. File Modifications Specification
-A. prompts.py
-Cần thêm 2 hàm mới (giữ lại các hàm cũ để backup/so sánh nếu cần).
-
-build_draft_translation_prompt(chunk_text, prev_context)
-
-Construct simple system prompt focused on literary translation style.
-
-Append previous context to guide the flow.
-
-build_post_editing_prompt(source_text, draft_text, injected_reference, glossary, relations)
-
-Structure:
-
-### RULE SET: Convert glossary dict & relation list into natural language bullet points.
-
-### REFERENCE CONTEXT: Insert injected_reference.
-
-### SOURCE: source_text.
-
-### DRAFT: draft_text.
-
-Instruction: Explicitly tell the model to look at REFERENCE to resolve pronouns in SOURCE, then fix DRAFT.
-
-B. pipeline.py
-Tạo class mới PostEditingPipeline(BasePipeline) (hoặc sửa GraphRAGPipeline nếu muốn thay thế hoàn toàn).
-
-Logic trong process_chapter:
-
-Loop qua các chunks.
-
-Call 1: Gọi LLM với build_draft_translation_prompt. Lưu result vào draft_trans.
-
-Logic Injection: Gọi injection_llm (hoặc reuse logic cũ) để lấy injected_chunk.
-
-Logic Filter: Viết helper function để lọc self.gm.glossary và self.gm.relations -> Chỉ lấy items có key xuất hiện trong chunk_text.
-
-Call 2: Gọi LLM với build_post_editing_prompt.
-
-Save: Ghi kết quả cuối cùng ra file.
-
-C. graph_manager.py (Optional but Recommended)
-Thêm phương thức helper: get_relevant_context(chunk_text)
-
-Input: Text đoạn hiện tại.
-
-Logic: Quét text, tìm các từ khóa có trong Glossary và Node IDs.
-
-Output: Subset Glossary và Subset Relations (giúp giảm token cho Prompt Editing).
-
-D. main.py
-Thêm argument --pipeline type (hoặc tự động chuyển logic dựa trên flag) để kích hoạt PostEditingPipeline.
-
-5. Verification & Acceptance Criteria
-Quy trình kiểm thử (Verification Process):
-Test Hallucination:
-
-Chạy với model nhỏ (Llama-3-8b/Gemini Flash).
-
-Kiểm tra xem bản dịch cuối có bịa ra đoạn văn nào không có trong Source không (do Input Step 3 khá dài).
-
-Fix: Nếu có, cần tối ưu lại bộ lọc Rule Set để ngắn gọn hơn.
-
-Test Consistency (Quan trọng):
-
-Chọn đoạn hội thoại giữa 2 nhân vật có quan hệ phức tạp (VD: Klein vs Captain).
-
-So sánh Draft (chưa sửa) và Final (đã sửa).
-
-Expectation: Draft có thể dịch là "Anh - Tôi", nhưng Final phải sửa thành "Đội trưởng - Tôi".
-
-Test Fluency:
-
-Đọc bản Final. Nó có mượt như bản dịch thuần (SimplePipeline) không?
-
-Expectation: Phải mượt hơn bản GraphRAGPipeline cũ (do không bị chèn tag [] vào giữa câu).
-
-Input/Output Example for Verification:
-Input (Source):
-
-He walked to the desk. "Is this 0-08?" he asked.
-
-Intermediate (Draft):
-
-Anh ấy đi tới bàn làm việc. "Đây có phải là 0-08 không?" anh ấy hỏi.
-
-Intermediate (Reference):
-
-He [Klein] walked to the desk. "Is this 0-08 [Artifact]?" he [Klein] asked.
-
-Intermediate (Rule):
-
-Klein -> Tự xưng "Tôi".
-
-0-08 -> Vật Phong Ấn 0-08.
-
-Expected Final Output:
-
-Tôi đi tới bàn làm việc. "Đây có phải là Vật Phong Ấn 0-08 không?" tôi hỏi.
+1. Read this file and the project memory file (`~/.claude/projects/C--Users-trang/memory/project_dynamic_graphrag.md`).
+2. Check `git log` and `git status` on `refactor/2026-thesis` to confirm where work resumed.
+3. If user has filled `spot_check_for_review.csv`: run `score_spot_check.py` first.
+4. Otherwise: start A3 Translation Memory implementation. Suggested entry point — new module `modules/translation_memory.py` exposing `add(source, translation, score)`, `retrieve(source, k=3)`. Wire into `core/pipeline.py` `PostEditingPipeline._phase_2_draft_and_edit` between Step A (draft) and Step C (edit).
