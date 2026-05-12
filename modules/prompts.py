@@ -444,6 +444,83 @@ Gã đàn ông cười khẩy. "Ngươi sẽ phải bỏ mạng tại đây!" h�
 
     return messages
 
+def build_literary_judge_prompt(source_text, candidate_text, reference_text=None):
+    """Reference-based sentence-level LLM-judge for EN→VI literary MT (Fantasy/Mystery).
+
+    Returns messages for an LLM call. The judge must return strict JSON:
+        {"scores": {axis: 1-5, ...}, "rationale": "<1-2 sentences>"}
+
+    Axes (all 1-5, integer):
+      - accuracy: meaning faithfulness to source
+      - fluency:  natural Vietnamese, novel-grade
+      - register: pronouns/honorifics fit relationship & status
+      - cultural: genre-specific terms in idiomatic Hán-Việt
+      - style:    preserves Fantasy/Mystery narrative voice
+
+    If reference_text is provided, the judge uses it as a gold anchor (not a target
+    to match verbatim — different phrasing can still score 5).
+    """
+    has_ref = bool(reference_text and reference_text.strip())
+
+    system_prompt = """Bạn là Giám khảo Dịch thuật Văn học chuyên về tiểu thuyết Fantasy/Mystery (Lord of the Mysteries, Wuxia/Xianxia, web novel).
+Nhiệm vụ: Chấm bản dịch tiếng Việt theo 5 tiêu chí, mỗi tiêu chí thang 1-5 (số nguyên).
+
+### 5 TIÊU CHÍ:
+
+1. accuracy (Độ chính xác về nghĩa) — Bản dịch có giữ được ý nghĩa, sự kiện, sắc thái câu gốc không?
+   1: Sai lệch nghĩa, bịa thông tin, mất chi tiết quan trọng.
+   3: Giữ ý chính nhưng thiếu sắc thái hoặc có sai sót nhỏ.
+   5: Chuyển tải hoàn chỉnh cả nghĩa và sắc thái.
+
+2. fluency (Độ trôi chảy) — Tiếng Việt tự nhiên, đúng văn phong tiểu thuyết?
+   1: Word-by-word, gượng, sai ngữ pháp.
+   3: Đúng ngữ pháp nhưng cứng, lộ máy dịch.
+   5: Như nhà văn chuyên nghiệp, nhịp điệu mượt.
+
+3. register (Xưng hô / Vai vế) — Đại từ và cách xưng hô phù hợp mối quan hệ và bối cảnh?
+   1: Sai xưng hô nghiêm trọng (vd cấp dưới gọi cấp trên là "mày").
+   3: Trung tính, không sai nhưng thiếu cá tính.
+   5: Phản ánh đúng địa vị xã hội và sắc thái nhân vật.
+
+4. cultural (Thuật ngữ / Hán-Việt) — Thuật ngữ thể loại (tu chân, ma thuật, Tarot, vật phẩm huyền bí) dịch đúng và có sắc thái?
+   1: Dịch nghĩa đen làm mất hồn ("Major Arcana" → "Bài Lớn").
+   3: Đúng nghĩa nhưng dùng từ trung tính.
+   5: Hán-Việt chuẩn, cổ kính (vd "Ẩn Chính", "Ma dược", "Vật Phong Ấn").
+
+5. style (Văn phong / Giọng kể) — Giữ được giọng kể tiểu thuyết (bí ẩn, trang trọng, drama)?
+   1: Phẳng, mất giọng kể.
+   3: Trung tính, nhận ra thể loại.
+   5: Văn phong sống động, đúng tinh thần Fantasy/Mystery.
+
+### OUTPUT JSON STRICT (không markdown fence, không lời dẫn):
+{"scores":{"accuracy":<1-5>,"fluency":<1-5>,"register":<1-5>,"cultural":<1-5>,"style":<1-5>},"rationale":"<1-2 câu nêu điểm mạnh/yếu chính>"}"""
+
+    if has_ref:
+        user_content = f"""### Source (English):
+{source_text}
+
+### Reference (Vietnamese gold — dùng làm chuẩn so sánh, KHÔNG yêu cầu giống hệt):
+{reference_text}
+
+### Candidate (Vietnamese to evaluate):
+{candidate_text}
+
+Chấm Candidate. Trả về JSON đúng format."""
+    else:
+        user_content = f"""### Source (English):
+{source_text}
+
+### Candidate (Vietnamese to evaluate):
+{candidate_text}
+
+Chấm Candidate (không có Reference, dựa vào Source và kiến thức Fantasy/Mystery). Trả về JSON đúng format."""
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+
 def build_evaluation_prompt(source_text, translation_a, translation_b):
     """
     Update: Chuyển sang cơ chế chấm điểm (1-10) để tìm Winner thay vì chỉ định tính.
