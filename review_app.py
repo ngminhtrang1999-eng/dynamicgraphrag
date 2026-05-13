@@ -243,5 +243,8 @@ def submit(idx):
 if __name__ == "__main__":
     print(f"Loading pairs from: {PAIRS_PATH}")
     print(f"Saving responses to: {RESPONSES_PATH}")
-    print("Open http://localhost:5000 in your browser.")
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    # host=0.0.0.0 so the Windows browser can reach this Flask app running inside
+    # WSL via http://localhost:5000 (WSL2 forwards localhost only when the
+    # service binds to all interfaces, not 127.0.0.1 inside WSL).
+    print("Open http://localhost:5000 in your Windows browser.")
+    app.run(host="0.0.0.0", port=5000, debug=False)

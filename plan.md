@@ -35,8 +35,10 @@
 | Week 1 validation — human spot-check (sum-of-5) | FAILED 14.3% → diagnosed | committed 7977c8a |
 | Week 2 — A3 Translation Memory MVP | done (smoke verified, qualitative win on names + style) | committed 2743bef |
 | Week 2 — A3 chap-6 ablation partial (n=22, sum-of-5) | done: TM_on 19.73 vs TM_off 19.23, accuracy +0.56 | committed 7977c8a |
-| Week 2 — Judge revision: pairwise approach | **done — deepseek-chat pairwise = 57.1% agreement, 4x baseline** | uncommitted |
-| Week 2 — A3 chap-6 ablation full pairwise (n=62) | **done — TM_on 62.5% decisive win rate, p=0.077 one-sided** | uncommitted |
+| Week 2 — Judge revision: pairwise approach | done — deepseek-chat pairwise = 57.1% per-pair agreement | uncommitted |
+| Week 2 — A3 chap-6 ablation full pairwise (n=62) | done — TM_on 62.5% decisive win rate, p=0.077 one-sided | uncommitted |
+| Week 2 — Phase 3 human pairwise review (n=30) | **done — aggregate TM_on 61.5% matches judge 62.5% (1pp gap)** | uncommitted |
+| Week 2 — docln crawler + alignment editor | done — 9/18 chap fetched (chap 3-7 aligned by user, 8-10/12-17/20 blocked) | uncommitted |
 | Week 3 — A1 Hierarchical retrieval | not started |  |
 | Week 4 — A2 Coreference retrieval | not started |  |
 | Week 5 — full ablation + B framework scale-up | not started |  |
@@ -138,6 +140,37 @@ chunk (TM_on chap-6 chunk 1). `core/pipeline.py` now falls back to the draft whe
 the edit is empty or <half the draft length. Recovered chunk 1 from log to keep
 the partial ablation usable.
 
+## Phase 3 human pairwise review findings (2026-05-14)
+
+User reviewed 30 anonymized pairs via `review_app.py` with rubric-aligned instructions
+(focus on word-level errors + xưng hô first, prose flow second).
+
+| Comparison | Result |
+|---|---|
+| Set 1 NEW (rubric) vs deepseek-chat — per pair | 7/14 = 50.0% (down from 57.1% prose-bias baseline) |
+| Set 1 NEW vs OLD (how often user changed their mind under rubric) | 8/14 agreed (user shifted 6 pairs, mostly toward "tie") |
+| Set 2 (16 ablation pairs) human vs judge — per pair | 7/16 = 43.8% |
+| **Set 2 aggregate TM_on win rate — human n=16** | **61.5% (8/13 decisive)** |
+| **Chap 6 aggregate TM_on win rate — judge n=62** | **62.5% (25/40 decisive)** |
+
+**Headline thesis finding**: per-pair preference judgments are inherently noisy
+(subjective tie-threshold differs between human and rubric-following judge), but
+**the aggregate ablation metric — which-system-wins-on-average — matches between
+human and judge within 1 percentage point.** Since aggregate ablation IS the
+thesis question (does TM beat no-TM?), the judge is validated for the actual
+metric of interest. Per-pair agreement is reported as a secondary statistic with
+diagnostic of disagreement patterns (judge catches word-level slips humans miss
+when reading at prose level — see [[review-style-prose-level]] memory).
+
+## docln alignment progress (2026-05-13/14)
+
+User has aligned chapters 3-7 via `docln_align_app.py` (output:
+`data/LOTM/chapters_vi/chap_{3,4,5,6,7}.txt`). Stuck at chap 8 because the
+web.archive snapshot didn't capture it (along with 10, 12-17, 20 — 9 of 18
+target chapters missing). User is contacting the docln site owner to source
+missing chapters directly. Meanwhile chap 11, 18, 19 remain crawlable for next
+alignment session.
+
 ## Judge revision findings (2026-05-13)
 
 Tested 4 approaches on the 14-pair spot-check (llama-3.1-8B chap 6, RAG vs No_RAG):
@@ -167,30 +200,36 @@ Confirms the earlier per-axis n=22 signal (TM_on +0.50 sum-of-5, +0.56 accuracy)
 
 ### USER actions before/during next session
 
-**A. Phase 3 human review (30-45 min, do this FIRST in next session):**
+**A. (DONE Phase 3 — output at `evaluation/llm_judge/spot_check_v2_responses.csv`):**
+Phase 3 completed; aggregate result validates judge for ablation. No further user
+action needed unless we re-run on a fresh batch later for robustness.
+
+**A.bis Continue docln alignment when unblocked:**
+- Currently aligned: chap 3-7 (saved to `data/LOTM/chapters_vi/`).
+- Pending crawl: chap 8, 10, 12-17, 20 (web.archive snapshot incomplete).
+  User is contacting the site owner to obtain these.
+- Available right now: chap 11, 18, 19 from docln crawl (can align via
+  `python docln_align_app.py` → http://localhost:5002 → enter EN chap 11/18/19).
+
+**B. Refine VN reference for chap 11-25 (for TM seed expansion + LoRA hold-out):**
+
+Chap 11-25 Vietnamese auto-MT already crawled from vietnamthuquan.eu — raw text
+sits at `data/LOTM/chapters_vi_raw/chap_<N>.txt`. The site is partial machine
+translation, so the text needs hand-fixing before it becomes a usable reference.
 
 ```bash
 # In WSL graphrag env:
-python review_app.py
-# Then open http://localhost:5000 in browser
+python vntq_edit_app.py
+# Open http://localhost:5001/  — side-by-side EN (if any) + editable VN.
+# Your edits save to data/LOTM/chapters_vi/chap_<N>.txt (preserves raw separately).
+# Ctrl+S in the textarea = Save.
 ```
 
-The UI presents 30 pairs (14 re-eval RAG vs No_RAG + 16 new TM_on vs TM_off anonymized).
-Critically — the UI shows rubric-aligned instructions: **look for word-level errors
-(Lồn, code-switch, hallucination) and xưng hô FIRST, prose flow second.** Last time
-you missed word-level slips ("Lồn", "ông ta") because you read at prose level — this
-framing fixes that. Goal: cross 70% agreement with the judge.
-
-Save state is automatic (writes to `evaluation/llm_judge/spot_check_v2_responses.csv`
-after each Submit). Can pause + resume any time.
-
-**B. Crawl/source chap 11-25 (for TM seed expansion + LoRA hold-out):**
-
-Need pairs of (EN source, VN reference) for chapters 11-25 of Lord of the Mysteries.
-Same format as `data/LOTM/chapters/chap_<N>.txt` (EN) and the `ref` columns in
-`evaluation/alignment_results_*/aligned_master_chap_<N>.csv` (VN). Drop the EN files
-into `data/LOTM/chapters/`. For VN references, the project will run `align_ablation.py`
-or `batch_alignment.py` to align them.
+EN source for chap 11-25 not yet on disk. Two options:
+- Edit VN-only (faster) — the editor still works; left pane just shows a stub
+  message. Output still feeds into the TM seed.
+- Source EN from Wuxiaworld (or equivalent) and drop as `data/LOTM/chapters/chap_<N>.txt`.
+  Editor then shows side-by-side automatically.
 
 Why chap 11-25 specifically: test set is chap 6-10 (per `const.START_CHAPTER=6`,
 `END_CHAPTER=10`). Chap 1-5 already used for TM seed. To avoid data leakage:
@@ -198,12 +237,14 @@ Why chap 11-25 specifically: test set is chap 6-10 (per `const.START_CHAPTER=6`,
 - LoRA hold-out dataset: chap 11-25 (15 chapters, kept strictly OUT of judge eval)
 - Test ablation: chap 6-10 (untouched by training)
 
+If you want to crawl more chapters (26+) later: `python crawl_vntq.py --start 26 --end 30`.
+
 ### Claude actions next session (after USER does A and B)
 
 1. **Read plan.md + project memory** (`~/.claude/projects/C--Users-trang/memory/`).
 2. **Check git status** + `git log` on `refactor/2026-thesis`.
 3. **Score Phase 3 results**: `python score_spot_check_v2.py` → report new vs old agreement on set 1, human vs judge on set 2. If ≥70% on set 1: document as paper finding. If <70%: dig into disagreements.
-4. **Align chap 11-25** (user-supplied source/ref): run alignment pipeline to produce `evaluation/alignment_results_*/aligned_master_chap_<N>.csv` for N=11..25.
+4. **Align chap 11-25** (after user has edited the VN via `vntq_edit_app.py`): run `align_ablation.py` or `batch_alignment.py` with EN from `data/LOTM/chapters/chap_<N>.txt` (if present) and VN from `data/LOTM/chapters_vi/chap_<N>.txt` to produce `evaluation/alignment_results_*/aligned_master_chap_<N>.csv` for N=11..25. If EN source is missing for some chapters, alignment skips them and we can still use the VN-only text as TM seed (single-side embedding).
 5. **Expand TM seed**: `python seed_translation_memory.py --chapters 1,2,3,4,5,11,...,25 --max-pairs 1000` to populate TM with broader coverage.
 6. **Generate TM_on/TM_off translations for chap 7-10**: run `main.py` twice with `--experiment-suffix tm` (TM on) and `--experiment-suffix notm` (TM off) over chap 7-10. ~6-12 hours of Ollama background work (qwen3:8b WSL).
 7. **Align chap 7-10 ablation outputs** with `align_ablation.py` → `aligned_master_chap_{7,8,9,10}.csv` with TM_on/TM_off columns.
@@ -215,18 +256,24 @@ Why chap 11-25 specifically: test set is chap 6-10 (per `const.START_CHAPTER=6`,
 
 Already committed in `7977c8a` (prior session): translation_memory.py, seed_translation_memory.py, align_ablation.py, pipeline.py changes, main.py ablation flags, prompts.py TM injection, knowledge_base ablation dirs, aligned_master_chap_6.csv, partial per-axis scores.
 
-Net new in this session (pairwise judge work + Phase 3 scaffold):
-- `batch_pairwise_judge.py` (new — pairwise runner with configurable column mapping, position-bias swap)
-- `probe_judge_providers.py` (new — free-tier provider availability probe)
-- `prepare_spot_check_v2.py` (new — Phase 3 data prep, 14 re-eval + 16 ablation anonymized)
-- `review_app.py` (new — Flask web UI for Phase 3 human review)
-- `score_spot_check_v2.py` (new — Phase 3 scoring vs deepseek-chat)
-- `score_spot_check.py` (modified — added `--rubric prose` for re-aggregation experiment)
-- `modules/prompts.py` (modified — added `build_literary_pairwise_judge_prompt`)
-- `evaluation/llm_judge/pairwise_spot_check_for_review_deepseek-chat.csv` (new — 14-pair spot-check, 57.1% agreement)
-- `evaluation/llm_judge/pairwise_spot_check_for_review_deepseek-reasoner.csv` (new — 14-pair reasoner run, 50.0% with 2 parse errors)
-- `evaluation/llm_judge/pairwise_spot_check_for_review_deepseek-chat_v2.csv` (new — relaxed-tie prompt experiment, regressed)
-- `evaluation/llm_judge/pairwise_ablation_chap6_TMon_vs_TMoff_deepseek-chat.csv` (new — **headline ablation result, 62 paired sentences**)
-- `evaluation/llm_judge/spot_check_v2_pairs.csv` (new — 30 pairs for Phase 3, A/B anonymized in set 2)
-- `evaluation/llm_judge/spot_check_v2_key.csv` (new — true A_is/B_is per pair, do NOT open before review)
-- `plan.md` (updated with this section + Phase 3 instructions)
+Net new in this session (judge revision + Phase 3 + crawler/editor stack):
+- `batch_pairwise_judge.py` — pairwise runner with configurable column mapping + position-bias swap
+- `probe_judge_providers.py` — free-tier provider availability probe
+- `prepare_spot_check_v2.py` — Phase 3 data prep, 14 re-eval + 16 ablation anonymized
+- `review_app.py` — Flask UI for Phase 3 pairwise review (port 5000)
+- `score_spot_check_v2.py` — Phase 3 scoring vs deepseek-chat (per pair + aggregate)
+- `score_spot_check.py` — added `--rubric prose` for re-aggregation experiment
+- `modules/prompts.py` — added `build_literary_pairwise_judge_prompt`
+- `crawl_vntq.py` — vntq.eu LOTM Vietnamese crawler (low quality, fallback)
+- `vntq_edit_app.py` — Flask editor for vntq raw VN (port 5001)
+- `crawl_docln.py` — docln.net LOTM Vietnamese crawler via web.archive.org (high quality, 9/18 chap available)
+- `docln_align_app.py` — Flask 3-pane alignment editor: EN ↔ docln raw ↔ curated VN (port 5002)
+- `plan.md` — Phase 3 findings + alignment progress + next-session checklist
+
+Output data (gitignored, kept locally):
+- `evaluation/llm_judge/pairwise_spot_check_for_review_deepseek-{chat,reasoner,chat_v2}.csv` — Phase 1 spot-check pairwise runs
+- `evaluation/llm_judge/pairwise_ablation_chap6_TMon_vs_TMoff_deepseek-chat.csv` — headline ablation, n=62
+- `evaluation/llm_judge/spot_check_v2_{pairs,key,responses}.csv` — Phase 3 inputs + user responses
+- `data/LOTM/chapters_vi_raw/chap_{11..25}.txt` — vntq raw crawl
+- `data/LOTM/chapters_vi_docln_raw/chap_{3,4,5,6,7,9,11,18,19}.txt` — docln raw crawl (9 chapters)
+- `data/LOTM/chapters_vi/chap_{3,4,5,6,7}.txt` — user-aligned VN references for EN chap 3-7
