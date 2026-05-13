@@ -521,6 +521,80 @@ Chấm Candidate (không có Reference, dựa vào Source và kiến thức Fant
     ]
 
 
+def build_literary_pairwise_judge_prompt(source_text, candidate_a, candidate_b, reference_text=None):
+    """Pairwise LLM-judge for EN→VI literary MT, framed as a Vietnamese reader's preference.
+
+    Designed to match how a typical Vietnamese reader actually evaluates literary
+    translations: prose flow + xưng hô (register), with severe word-level errors
+    (vulgar mistranslation, EN/VN code-switching, Vietnamese spelling errors) as
+    veto signals. Per-axis sum-of-5 absolute scoring under-weights register/style
+    and over-weights surface accuracy.
+
+    Returns messages for an LLM call. Judge must return strict JSON:
+        {"choice": "A"|"B"|"tie", "rationale": "<1-2 sentences>"}
+
+    Counter position-bias at the caller: invoke twice with A↔B swapped; only count
+    as decisive if both calls agree.
+    """
+    has_ref = bool(reference_text and reference_text.strip())
+
+    system_prompt = """Bạn là độc giả tiếng Việt khó tính, thường đọc tiểu thuyết Fantasy/Mystery (Lord of the Mysteries, tiên hiệp, kỳ huyễn). Nhiệm vụ: đọc 2 bản dịch tiếng Việt của cùng một câu nguồn tiếng Anh, chọn bản nào CẢM GIÁC ĐỌC tự nhiên + hấp dẫn hơn với người Việt.
+
+### Tiêu chí ưu tiên (theo thứ tự):
+
+1. **Văn phong & nhịp đọc** — Câu có chảy mượt như tiểu thuyết Việt không? Hay khô cứng, "máy dịch", bị động ngược, dùng từ Hán-Việt sai chỗ?
+
+2. **Xưng hô (pronoun/register)** — Đại từ và cách gọi có khớp địa vị nhân vật và bối cảnh không? Sai "ông/anh/hắn/y" là lỗi nặng với độc giả Việt, dù nội dung đúng.
+
+3. **Lỗi nghiêm trọng (red flag — auto pick bản còn lại)**:
+   - Từ tục tĩu / sai chính tả tiếng Việt (vd "Lồn" thay vì "Loen", "absurđ" thay vì "absurd/vô lý")
+   - Code-switching tiếng Anh giữa câu tiếng Việt
+   - Bịa thông tin / mất chi tiết then chốt làm hiểu sai cốt truyện
+
+4. **Độ chính xác về nghĩa** — Phụ trợ. Bản dịch khác nhau về cách diễn đạt nhưng cùng giữ ý chính thì KHÔNG là yếu tố quyết định.
+
+### Quy tắc chọn:
+
+- Chọn "A" nếu A đọc hay/tự nhiên hơn rõ rệt theo tiêu chí 1-2, hoặc B có lỗi red flag.
+- Chọn "B" nếu B đọc hay/tự nhiên hơn rõ rệt, hoặc A có lỗi red flag.
+- Chọn "tie" CHỈ khi cả hai bản cho cảm giác đọc tương đương — không có khác biệt rõ về văn phong, không bản nào sai xưng hô nặng hơn, không bản nào có red flag.
+- KHÔNG chọn "tie" để né quyết định: nếu nghiêng dù chỉ một chút về cảm giác đọc, phải chọn A hoặc B.
+
+### Output JSON STRICT (không markdown fence, không lời dẫn):
+{"choice":"A"|"B"|"tie","rationale":"<1-2 câu nêu lý do — focus vào văn phong/xưng hô/red flag, KHÔNG liệt kê 5 trục>"}"""
+
+    if has_ref:
+        user_content = f"""### Source (English):
+{source_text}
+
+### Reference (Vietnamese gold — bản dịch của người dịch chuyên nghiệp, dùng để tham khảo văn phong/xưng hô CHUẨN, KHÔNG yêu cầu A hoặc B giống hệt):
+{reference_text}
+
+### Candidate A:
+{candidate_a}
+
+### Candidate B:
+{candidate_b}
+
+Hãy đọc cả 2 và chọn. Trả về JSON đúng format."""
+    else:
+        user_content = f"""### Source (English):
+{source_text}
+
+### Candidate A:
+{candidate_a}
+
+### Candidate B:
+{candidate_b}
+
+Hãy đọc cả 2 và chọn (không có Reference, dựa vào kiến thức Fantasy/Mystery và cảm giác đọc tiếng Việt). Trả về JSON đúng format."""
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+
+
 def build_evaluation_prompt(source_text, translation_a, translation_b):
     """
     Update: Chuyển sang cơ chế chấm điểm (1-10) để tìm Winner thay vì chỉ định tính.
