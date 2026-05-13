@@ -68,10 +68,19 @@ def main():
     with open(args.review, "r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
+    def normalize_choice(s):
+        s = (s or "").strip().lower()
+        # Accept variants users actually wrote: "a and b", "both", "a&b", "tie"
+        if s in {"a and b", "a&b", "a & b", "both", "tie"}:
+            return "tie"
+        if s in {"a", "b"}:
+            return s
+        return s  # unknown form preserved for visibility
+
     for r in rows:
         chap = r["chapter"]
         sid = r["sentence_id"]
-        human = (r.get("your_choice") or "").strip().lower()
+        human = normalize_choice(r.get("your_choice"))
         if not human:
             skipped_empty += 1
             continue

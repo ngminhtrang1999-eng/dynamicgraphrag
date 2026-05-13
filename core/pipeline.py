@@ -537,6 +537,13 @@ class PostEditingPipeline(BasePipeline):
             print(f"   ℹ️ Edit Prompt Tokens: {count_tokens(edit_prompt)}")
             final_trans = self.call_llm_with_retry(edit_prompt, const.TEMP_EDITING)
 
+            # Fallback: when reasoning models emit only <think> blocks and the
+            # backend strips them, final_trans can come back empty. Treat any
+            # final shorter than half the draft as a failure and keep the draft.
+            if not final_trans or len(final_trans.strip()) < max(80, len(draft_trans) // 2):
+                print(f"   ⚠️ Post-edit returned empty/too-short ({len(final_trans.strip())} chars) — falling back to draft.")
+                final_trans = draft_trans
+
             # --- INTERACTIVE REVIEW ---
             print(f"\n   --- DRAFT ---")
             print(draft_trans)

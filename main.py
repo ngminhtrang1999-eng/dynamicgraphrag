@@ -62,14 +62,34 @@ def parse_args():
         default=0.3,
         help="Cosine similarity floor for TM retrieval (default 0.3)",
     )
+    parser.add_argument(
+        "--experiment-suffix",
+        type=str,
+        default="",
+        help="Optional suffix appended to experiment dir name (for ablation: e.g. 'tm' or 'notm')",
+    )
+    parser.add_argument(
+        "--chap-start",
+        type=int,
+        default=None,
+        help="Override const.START_CHAPTER",
+    )
+    parser.add_argument(
+        "--chap-end",
+        type=int,
+        default=None,
+        help="Override const.END_CHAPTER",
+    )
     return parser.parse_args()
 
 def main():
     args = parse_args()
     
     # 1. SETUP EXPERIMENT PATH
-    # Tên thư mục sẽ là: llama3.1-8b_yes hoặc llama3.1-8b_no
+    # Tên thư mục: <model>_<rag>[_<suffix>] (suffix optional, dùng cho ablation)
     experiment_sub_dir = f"{args.model}_{args.rag}"
+    if args.experiment_suffix:
+        experiment_sub_dir = f"{experiment_sub_dir}_{args.experiment_suffix}"
     experiment_data_path = os.path.join(const.DATA_DIR, experiment_sub_dir)
     
     print(f"📂 EXPERIMENT DATA PATH: {experiment_data_path}")
@@ -170,7 +190,9 @@ def main():
         print(f"⚠️ Không tìm thấy file .txt nào trong {const.INPUT_DIR}")
         return
 
-    for chap_idx in range(const.START_CHAPTER, const.END_CHAPTER + 1):
+    chap_start = args.chap_start if args.chap_start is not None else const.START_CHAPTER
+    chap_end = args.chap_end if args.chap_end is not None else const.END_CHAPTER
+    for chap_idx in range(chap_start, chap_end + 1):
         # Tìm file tương ứng chap_idx (giả sử tên file có số)
         file_name = next((f for f in all_files if str(chap_idx) in f), None)
         if not file_name: 
@@ -186,8 +208,8 @@ def main():
         print(f"\n====== PROCESSING CHAPTER {chap_idx} [{args.model.upper()} | RAG:{args.rag.upper()}] ======")
         
         # Save Result
-        # Tên file output ví dụ: trans_chap_1_llama3.1-8b_yes.txt
-        out_name = f"trans_chap_{chap_idx}_{args.model}_{args.rag}.txt"
+        # Tên file output: trans_chap_<N>_<model>_<rag>[_<suffix>].txt
+        out_name = f"trans_chap_{chap_idx}_{experiment_sub_dir}.txt"
         out_path = os.path.join(const.OUTPUT_TRANS_DIR, out_name)
 
         # RUN PIPELINE
