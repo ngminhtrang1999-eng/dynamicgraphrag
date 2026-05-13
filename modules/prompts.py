@@ -574,16 +574,39 @@ Instruction: Compare Translation A and Translation B. Decide which is better bas
     return messages
 
 
+def format_tm_examples(examples):
+    """Format Translation Memory retrieval results as few-shot block.
+
+    Args:
+        examples: list of {source, translation, similarity, score?} from
+                  TranslationMemory.retrieve(); pass empty/None to skip.
+    """
+    if not examples:
+        return ""
+    lines = [
+        "<translation_memory>",
+        "Các bản dịch chất lượng cao có nội dung tương tự (tham khảo văn phong, cách chọn từ, tên riêng):",
+    ]
+    for i, ex in enumerate(examples, 1):
+        lines.append(f"\n[Ví dụ {i}] (similarity={ex['similarity']:.2f})")
+        lines.append(f"EN: {ex['source']}")
+        lines.append(f"VI: {ex['translation']}")
+    lines.append("</translation_memory>")
+    return "\n".join(lines)
+
+
 # --- Helper: Build Draft Translation Prompt (Phase 1 - Drafting) ---
-def build_draft_translation_prompt(chunk_text, prev_context=""):
+def build_draft_translation_prompt(chunk_text, prev_context="", tm_examples=None):
     """
     Build prompt for Phase 1 (Drafting) - Pure literary translation.
     No entity tags, no glossary constraints. Focus on fluency.
-    
+
     Args:
         chunk_text: The source text to translate
         prev_context: Optional context from previous chunk (last 2 sentences)
-        
+        tm_examples: Optional list of Translation Memory retrieval results
+                     (from TranslationMemory.retrieve) to inject as few-shot.
+
     Returns:
         list: Messages for LLM call
     """
@@ -598,17 +621,21 @@ Nhiệm vụ: Dịch văn bản sang Tiếng Việt với văn phong trôi chả
 - Ưu tiên: Độ mượt mà, tự nhiên của câu văn
 - KHÔNG cần tuân theo bất kỳ quy tắc xưng hô hay thuật ngữ cố định nào
 - Dịch thoát ý, tránh dịch word-by-word
+- Nếu có <translation_memory>: học văn phong và cách dùng từ từ các ví dụ đó,
+  KHÔNG copy nguyên văn, KHÔNG dịch lại các câu trong ví dụ.
 </style_guide>
 
 <output_format>
 Chỉ trả về bản dịch, không cần phân tích hay giải thích.
 </output_format>
 """
-    
+
     context_section = f"\n<previous_context>\n{prev_context}\n</previous_context>\n" if prev_context else ""
-    
+    tm_section = format_tm_examples(tm_examples)
+    tm_block = f"\n{tm_section}\n" if tm_section else ""
+
     user_content = f"""
-{context_section}
+{context_section}{tm_block}
 <input_text>
 {chunk_text}
 </input_text>

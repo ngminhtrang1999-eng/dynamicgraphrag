@@ -306,16 +306,26 @@ class GraphRAGPipeline(BasePipeline):
 class PostEditingPipeline(BasePipeline):
     """
     Two-pass Draft-then-Edit pipeline for improved fluency + consistency.
-    
+
     Phase 1: Knowledge Mining (reuses GraphRAGPipeline logic)
     Phase 2: Translation via:
         - Step A: Draft translation (fluent, no constraints)
         - Step B: Entity injection (reference generation)
         - Step C: Post-editing (fix pronouns/terminology)
+
+    Translation Memory (A3): when `translation_memory` is provided, top-k past
+    high-quality translations are injected as few-shot examples into the Step A
+    draft prompt. The TM is queried per chunk on the source text.
     """
-    def __init__(self, llm_backend, graph_manager, injection_llm=None, non_interactive=False):
+    def __init__(self, llm_backend, graph_manager, injection_llm=None,
+                 non_interactive=False, translation_memory=None, tm_k=3,
+                 tm_min_similarity=0.3, tm_min_score=None):
         super().__init__(llm_backend, graph_manager, non_interactive=non_interactive)
         self.injection_llm = injection_llm
+        self.tm = translation_memory
+        self.tm_k = tm_k
+        self.tm_min_similarity = tm_min_similarity
+        self.tm_min_score = tm_min_score
 
     def process_chapter(self, text, chap_idx, out_path):
         print(f"🚀 RUNNING: PostEditing Pipeline for Chapter {chap_idx}")
@@ -439,8 +449,20 @@ class PostEditingPipeline(BasePipeline):
             
             # === STEP A: DRAFTING ===
             print(f"\t   [A] Drafting...")
-            # draft_prompt = build_draft_translation_prompt(chunk, prev_chunk_last_sentences)
-            draft_prompt = build_draft_translation_prompt(chunk, "")
+            tm_examples = None
+            if self.tm is not None and len(self.tm) > 0:
+                tm_examples = self.tm.retrieve(
+                    chunk,
+                    k=self.tm_k,
+                    min_similarity=self.tm_min_similarity,
+                    min_score=self.tm_min_score,
+                )
+                if tm_examples:
+                    top_sim = tm_examples[0]["similarity"]
+                    print(f"   ℹ️ TM: {len(tm_examples)} examples retrieved (top sim={top_sim:.3f})")
+                else:
+                    print("   ℹ️ TM: no examples above similarity threshold")
+            draft_prompt = build_draft_translation_prompt(chunk, "", tm_examples=tm_examples)
             print(f"   ℹ️ Draft Prompt Tokens: {count_tokens(draft_prompt)}")
             draft_trans_raw = self.call_llm_with_retry(draft_prompt, const.TEMP_CREATIVE)
             
@@ -514,7 +536,7 @@ class PostEditingPipeline(BasePipeline):
             )
             print(f"   ℹ️ Edit Prompt Tokens: {count_tokens(edit_prompt)}")
             final_trans = self.call_llm_with_retry(edit_prompt, const.TEMP_EDITING)
-            
+
             # --- INTERACTIVE REVIEW ---
             print(f"\n   --- DRAFT ---")
             print(draft_trans)

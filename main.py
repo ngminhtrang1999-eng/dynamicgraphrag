@@ -3,6 +3,7 @@ import os
 import re
 import const
 from modules.graph_manager import GraphManager
+from modules.translation_memory import TranslationMemory
 from core.llm_backend import LocalQwenLLM, GeminiAPILLM, GroqLLM, OpenRouterLLM, LangDBLLM, NVIDIALLM, CloudfareLLM, OllamaLLM, OpenAICompatLLM
 from core.pipeline import GraphRAGPipeline, SimplePipeline, PostEditingPipeline
 
@@ -35,6 +36,31 @@ def parse_args():
         "--non-interactive",
         action="store_true",
         help="Skip all input() pauses for batch runs (ablation studies, eval pipelines)",
+    )
+    parser.add_argument(
+        "--tm",
+        dest="use_tm",
+        action="store_true",
+        default=True,
+        help="Enable Translation Memory (A3) for PostEditing draft prompt (default: on)",
+    )
+    parser.add_argument(
+        "--no-tm",
+        dest="use_tm",
+        action="store_false",
+        help="Disable Translation Memory (for ablation runs)",
+    )
+    parser.add_argument(
+        "--tm-k",
+        type=int,
+        default=3,
+        help="Number of TM examples to retrieve per chunk (default 3)",
+    )
+    parser.add_argument(
+        "--tm-min-similarity",
+        type=float,
+        default=0.3,
+        help="Cosine similarity floor for TM retrieval (default 0.3)",
     )
     return parser.parse_args()
 
@@ -114,7 +140,23 @@ def main():
         # Select pipeline based on --pipeline argument
         if args.pipeline == "postedit":
             print("📌 Using PostEditing Pipeline (Draft-then-Edit)")
-            pipeline = PostEditingPipeline(llm, gm, injection_llm=injection_llm, non_interactive=args.non_interactive)
+            tm = None
+            if args.use_tm:
+                tm = TranslationMemory(experiment_data_path)
+                if len(tm) == 0:
+                    print(f"   ⚠️ TM is empty for {experiment_sub_dir}. Run seed_translation_memory.py first, or pass --no-tm.")
+                else:
+                    print(f"   📚 TM loaded: {len(tm)} entries from {experiment_data_path}")
+            else:
+                print("   🚫 TM disabled (--no-tm)")
+            pipeline = PostEditingPipeline(
+                llm, gm,
+                injection_llm=injection_llm,
+                non_interactive=args.non_interactive,
+                translation_memory=tm,
+                tm_k=args.tm_k,
+                tm_min_similarity=args.tm_min_similarity,
+            )
         else:
             print("📌 Using GraphRAG Pipeline (Single-Pass Injection)")
             pipeline = GraphRAGPipeline(llm, gm, injection_llm=injection_llm, non_interactive=args.non_interactive)
