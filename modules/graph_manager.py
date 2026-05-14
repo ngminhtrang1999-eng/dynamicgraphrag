@@ -34,6 +34,19 @@ class GraphManager:
         self.tracking = load_json(self.path_tracking, self.tracking)
         self.trans_progress = load_json(self.path_trans_progress, self.trans_progress)
 
+        # A1 schema migration: flat {term: "translation"} -> {term: {"translation": "...", "type": "UNKNOWN"}}.
+        # Legacy entries become typed-on-read so downstream code can assume the structured form.
+        migrated = 0
+        for term, value in list(self.glossary.items()):
+            if isinstance(value, str):
+                self.glossary[term] = {"translation": value, "type": "UNKNOWN"}
+                migrated += 1
+            elif isinstance(value, dict):
+                value.setdefault("translation", "")
+                value.setdefault("type", "UNKNOWN")
+        if migrated:
+            print(f"      [A1] migrated {migrated} flat glossary entries to typed schema")
+
 
     def save_data(self):
         save_json(self.path_global, self.global_graph)
@@ -53,8 +66,29 @@ class GraphManager:
         self.local_graph["history"].append({"chapter": chap_idx, "summary": summary})
 
     def update_glossary(self, new_terms):
-        if new_terms:
-            self.glossary.update(new_terms)
+        """Merge new extraction output into the glossary.
+
+        Accepts either the new typed schema (`{term: {translation, type}}`) or the
+        legacy flat schema (`{term: "translation"}`). String values are coerced
+        into typed entries with type=UNKNOWN so the on-disk format stays uniform.
+        """
+        if not new_terms:
+            return
+        for term, value in new_terms.items():
+            if isinstance(value, dict):
+                entry = {
+                    "translation": value.get("translation", "").strip(),
+                    "type": (value.get("type") or "UNKNOWN").upper(),
+                }
+            else:
+                entry = {"translation": str(value).strip(), "type": "UNKNOWN"}
+            if not entry["translation"]:
+                continue
+            # Preserve type if a previously typed entry is being updated with an UNKNOWN one.
+            existing = self.glossary.get(term)
+            if isinstance(existing, dict) and entry["type"] == "UNKNOWN" and existing.get("type", "UNKNOWN") != "UNKNOWN":
+                entry["type"] = existing["type"]
+            self.glossary[term] = entry
 
     # --- PROGRESS TRACKING (TRANSLATION) ---
     def get_chapter_progress(self, chap_idx):
@@ -173,12 +207,22 @@ class GraphManager:
             Acceptable for thesis scope; consider regex \bterm\b for stricter matching if needed.
         """
         chunk_lower = chunk_text.lower()
-        
-        # Filter glossary: only terms that appear in chunk (simple substring match)
+
+        # Filter glossary: only terms that appear in chunk (simple substring match).
+        # Output is a flat {term: entry_dict} mapping; type-bucketing happens in
+        # the prompt-rendering layer so callers that just want lookup keep working.
         filtered_glossary = {}
-        for term, translation in self.glossary.items():
-            if term.lower() in chunk_lower:
-                filtered_glossary[term] = translation
+        for term, entry in self.glossary.items():
+            if term.lower() not in chunk_lower:
+                continue
+            if isinstance(entry, dict):
+                filtered_glossary[term] = {
+                    "translation": entry.get("translation", ""),
+                    "type": (entry.get("type") or "UNKNOWN").upper(),
+                }
+            else:
+                # Legacy in-memory state (shouldn't happen after load_data migration, but safe)
+                filtered_glossary[term] = {"translation": str(entry), "type": "UNKNOWN"}
         
         # Filter relations: Get from active memory first
         all_relations = self.get_relations_data()

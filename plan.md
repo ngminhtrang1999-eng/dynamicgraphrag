@@ -1,6 +1,6 @@
 # Thesis Plan — Dynamic GraphRAG for Vietnamese Literary MT
 
-**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-13 (A3 MVP + pairwise judge + chap-6 ablation full)
+**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-14 (RAG vs GG baseline + TM seed expansion + A1 hierarchical retrieval)
 
 > Resume note: this document captures where the project stands and what to do next.
 > Read this first when starting a new session. Memory entries (in `~/.claude/...`)
@@ -38,8 +38,11 @@
 | Week 2 — Judge revision: pairwise approach | done — deepseek-chat pairwise = 57.1% per-pair agreement | uncommitted |
 | Week 2 — A3 chap-6 ablation full pairwise (n=62) | done — TM_on 62.5% decisive win rate, p=0.077 one-sided | uncommitted |
 | Week 2 — Phase 3 human pairwise review (n=30) | **done — aggregate TM_on 61.5% matches judge 62.5% (1pp gap)** | uncommitted |
-| Week 2 — docln crawler + alignment editor | done — 9/18 chap fetched (chap 3-7 aligned by user, 8-10/12-17/20 blocked) | uncommitted |
-| Week 3 — A1 Hierarchical retrieval | not started |  |
+| Week 2 — docln crawler + alignment editor | done — 9/18 chap fetched (chap 3-7 aligned by user, 8-10/12-17/20 blocked) | committed 1c26237 |
+| Week 2 — User edits VN chap 11-19 via vntq_edit_app | done | uncommitted (data only) |
+| Week 2 — RAG vs GG baseline pairwise judge | done — TM_on 43% / TM_off 20% decisive vs GG | uncommitted |
+| Week 2 — TM seed expansion chap 11-19 | done — 50 → 928 entries | uncommitted |
+| Week 3 — A1 Hierarchical retrieval | code complete (typed glossary schema + bucketed rendering) | uncommitted |
 | Week 4 — A2 Coreference retrieval | not started |  |
 | Week 5 — full ablation + B framework scale-up | not started |  |
 | Week 6 — write-up | not started |  |
@@ -161,6 +164,65 @@ thesis question (does TM beat no-TM?), the judge is validated for the actual
 metric of interest. Per-pair agreement is reported as a secondary statistic with
 diagnostic of disagreement patterns (judge catches word-level slips humans miss
 when reading at prose level — see [[review-style-prose-level]] memory).
+
+## RAG vs GG baseline pairwise (2026-05-14, chap 6 only)
+
+deepseek-chat pairwise judging on chap 6 with TM_on/TM_off candidates merged with the
+GG column from `aligned_master_chap_6.csv` (Source_ID matches 1:1 across systems).
+
+| Comparison | A wins | B wins | Tie | A decisive % | sign-test (B>A) |
+|---|---|---|---|---|---|
+| TM_on (qwen3:8b) vs GG | 26 | 34 | 28 | **43.3%** | p = 0.181 |
+| TM_off (qwen3:8b base RAG) vs GG | 10 | 40 | 19 | **20.0%** | **p < 0.0001** |
+| TM_on vs TM_off (prior result) | 25 | 15 | 22 | 62.5% | p = 0.077 |
+
+**Triangulation:** Without TM, base RAG loses to GG decisively (80% GG wins, p<0.0001).
+With TM, we close the gap to "GG wins 57% vs RAG 43%, not significant at p=0.18". TM
+contributes a measurable ~23 percentage-point lift toward closing the GG gap. This is
+the most concrete A3 evidence to date.
+
+The 13pp residual gap is what A1 (hierarchical glossary) + A2 (coreference) need to
+close to achieve "RAG > GG" thesis claim. Outputs in
+`evaluation/llm_judge/pairwise_chap6_TM{on,off}_vs_GG_deepseek-chat.csv`.
+
+## TM seed expansion (2026-05-14)
+
+User aligned chap 11-19 VN edit references via `vntq_edit_app.py`. Pipeline:
+
+1. `align_reference.py` (new): EN source + user VN edit → `aligned_master_chap_N.csv`
+   with columns `Source_ID, Source_Text, ref`. 9 chapters processed, 1,292 src sents.
+2. `seed_translation_memory.py --experiment qwen3-8b-local_yes_tm --chapters 11..19
+   --source-dir evaluation/alignment_results_reference --max-pairs 2000`.
+3. TM size 50 → 928 (+878 entries). Chap 1 entries preserved (no dedup loss).
+
+Retrieval-quality probe on 5 random chap-6 sentences against the expanded TM showed
+average top-1 similarity ~0.46 (unchanged from chap-1-only seed; chap 11-19 plot
+is too distant from chap 6 to lift those scores). Expansion impact is expected at
+chap 7-10 where plot continuity overlaps with chap 11+.
+
+**Methodological note for paper:** TM contains chap 11-19 user edits (after the
+test chapter range 7-10). Framing: "mature translator with established style"
+scenario, not a "cold-start" scenario. Chap 1 + chap 11-19 are USER-validated;
+chap 7-10 model translations are NOT fed back into TM during the ablation.
+
+## A1 hierarchical retrieval (2026-05-14, code complete)
+
+Migrated glossary schema from `{term: str}` to `{term: {translation, type}}`. Types
+emitted by the extraction prompt: ORG, DEITY, LOCATION, CONCEPT, ITEM, TITLE
+(default UNKNOWN for legacy entries).
+
+Files changed:
+- `modules/prompts.py`: `build_glossary_extraction_prompt` requests typed output;
+  `format_glossary_by_type` helper renders bucketed Markdown sections; both
+  `build_translation_prompt` and `build_post_editing_prompt` use the helper.
+- `modules/graph_manager.py`: `load_data` migrates flat strings into typed dicts
+  on read; `update_glossary` coerces either schema; `get_relevant_context` returns
+  `{term: {translation, type}}` dicts.
+
+Backward compatibility verified: loaded an existing `term_glossary.json` (38 flat
+entries) and the migration tagged them as type=UNKNOWN; downstream rendering
+groups them under "Khác (UNKNOWN)" section. Next ablation run will populate real
+types as new chapters are processed.
 
 ## docln alignment progress (2026-05-13/14)
 

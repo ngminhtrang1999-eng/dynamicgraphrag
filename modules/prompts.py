@@ -210,11 +210,14 @@ Nhiệm vụ của bạn là trích xuất các thuật ngữ cụ thể và cun
 * **Văn phong**: Ưu tiên sử dụng từ **Hán Việt** cho các thuật ngữ Ma thuật/Tu chân/Tôn giáo để tạo sắc thái trang trọng, cổ kính.
 
 ### ĐỊNH DẠNG ĐẦU RA (CHỈ JSON):
+Mỗi thuật ngữ phải gắn nhãn `type` thuộc một trong các giá trị:
+`ORG` (tổ chức), `DEITY` (thần linh), `LOCATION` (địa danh), `CONCEPT` (khái niệm / nghi lễ / pathway), `ITEM` (vật phẩm cụ thể), `TITLE` (danh xưng / tiếng lóng / chức danh).
+
 ```json
 {
   "reasoning": "Giải thích lý do tại sao trích xuất các thuật ngữ này và cách chọn từ ngữ dịch thuật...",
   "glossary": {
-      "English Term": "Vietnamese Translation"
+      "English Term": { "translation": "Vietnamese Translation", "type": "CONCEPT" }
   }
 }
 """
@@ -224,11 +227,13 @@ Nhiệm vụ của bạn là trích xuất các thuật ngữ cụ thể và cun
     TEXT:
     Klein checked the Major Arcana cards. He acted like a Keyboard Warrior in his past life.
     """
-    shot_1_assistant = """```json 
-{ 
-    "reasoning": "1. 'Major Arcana' is a Tarot Concept -> CONCEPT. Translate: 'Ẩn Chính'. 2. 'Keyboard Warrior' is a Slang/Title -> CONCEPT. Translate: 'Anh hùng bàn phím' or 'Thánh bàn phím'.", 
-    "glossary": { "Major Arcana": "Ẩn Chính", "Keyboard Warrior": "Anh hùng bàn phím" 
-    } 
+    shot_1_assistant = """```json
+{
+    "reasoning": "1. 'Major Arcana' is a Tarot Concept -> CONCEPT. Translate: 'Ẩn Chính'. 2. 'Keyboard Warrior' is a Slang/Title -> TITLE. Translate: 'Anh hùng bàn phím' or 'Thánh bàn phím'.",
+    "glossary": {
+        "Major Arcana": { "translation": "Ẩn Chính", "type": "CONCEPT" },
+        "Keyboard Warrior": { "translation": "Anh hùng bàn phím", "type": "TITLE" }
+    }
 }"""
 
     # Few-shot 2: Filtering noise (Person & Common items)
@@ -236,12 +241,12 @@ Nhiệm vụ của bạn là trích xuất các thuật ngữ cụ thể và cun
     TEXT:
     Klein sat on the sofa in the living room. He looked at Old Neil. The Holy Cathedral was far away.
     """
-    
+
     shot_2_assistant = """```json
 {
-  "reasoning": "1. 'Klein' and 'Old Neil' are PERSONS -> IGNORE. 2. 'sofa', 'living room' are generic objects/places -> IGNORE. 3. 'Holy Cathedral' is a named building/organization seat -> LOCATION/ORG. Translate: 'Thánh Đường'.",
+  "reasoning": "1. 'Klein' and 'Old Neil' are PERSONS -> IGNORE. 2. 'sofa', 'living room' are generic objects/places -> IGNORE. 3. 'Holy Cathedral' is a named building/organization seat -> LOCATION.",
   "glossary": {
-      "Holy Cathedral": "Thánh Đường"
+      "Holy Cathedral": { "translation": "Thánh Đường", "type": "LOCATION" }
   }
 }
 ```"""
@@ -293,6 +298,66 @@ def _format_relations_to_table(relations_data):
         
     return "\n".join(table)
 
+TYPE_DISPLAY_ORDER = ["DEITY", "ORG", "LOCATION", "CONCEPT", "ITEM", "TITLE", "UNKNOWN"]
+TYPE_DISPLAY_LABEL = {
+    "DEITY": "Thần linh",
+    "ORG": "Tổ chức",
+    "LOCATION": "Địa danh",
+    "CONCEPT": "Khái niệm / Pathway / Nghi lễ",
+    "ITEM": "Vật phẩm",
+    "TITLE": "Danh xưng / Tiếng lóng",
+    "UNKNOWN": "Khác",
+}
+
+
+def _normalize_glossary(glossary):
+    """Coerce glossary entries to the typed schema for prompt rendering.
+
+    Accepts both the new `{term: {translation, type}}` form and the legacy
+    `{term: "translation"}` form so callers do not have to migrate in lockstep.
+    """
+    if not glossary:
+        return {}
+    out = {}
+    for term, value in glossary.items():
+        if isinstance(value, dict):
+            translation = value.get("translation", "")
+            type_ = (value.get("type") or "UNKNOWN").upper()
+        else:
+            translation = str(value)
+            type_ = "UNKNOWN"
+        if not translation:
+            continue
+        out[term] = {"translation": translation, "type": type_}
+    return out
+
+
+def format_glossary_by_type(glossary):
+    """Render a glossary as Markdown sections bucketed by entity type.
+
+    A1 hierarchical retrieval — surfacing the type lets the LLM treat e.g. an ORG
+    differently from a LOCATION when picking xưng hô and Hán-Việt registers.
+    Returns an empty string when there are no entries to render.
+    """
+    normalized = _normalize_glossary(glossary)
+    if not normalized:
+        return ""
+    buckets = {}
+    for term, entry in normalized.items():
+        buckets.setdefault(entry["type"], []).append((term, entry["translation"]))
+    sections = []
+    extras = [t for t in buckets if t not in TYPE_DISPLAY_ORDER]
+    for type_ in TYPE_DISPLAY_ORDER + sorted(extras):
+        items = buckets.get(type_)
+        if not items:
+            continue
+        items.sort(key=lambda x: x[0].lower())
+        label = TYPE_DISPLAY_LABEL.get(type_, type_.title())
+        body = "\n".join(f"- {en} → {vi}" for en, vi in items)
+        sections.append(f"## {label} ({type_})\n{body}")
+    return "\n\n".join(sections)
+
+
 def build_translation_prompt(chunk_text, glossary=None, relations_data=None, current_summary=None, model_type="strong"):
     """
     Xây dựng prompt dạng XML.
@@ -308,11 +373,8 @@ def build_translation_prompt(chunk_text, glossary=None, relations_data=None, cur
     if is_rag_mode:
         # 2. Xử lý thành phần XML con
         
-        # A. GLOSSARY SECTION
-        if glossary:
-            glossary_str = json.dumps(glossary, ensure_ascii=False, indent=2)
-        else:
-            glossary_str = ""
+        # A. GLOSSARY SECTION (A1: hierarchical, bucketed by entity type)
+        glossary_str = format_glossary_by_type(glossary)
 
         # B. RELATIONS SECTION (Dạng Bảng)
         relations_table = _format_relations_to_table(relations_data)
@@ -735,8 +797,8 @@ def build_post_editing_prompt(source_text, draft_text, injected_reference, gloss
     Returns:
         list: Messages for LLM call
     """
-    # Format glossary as bullet points (only relevant terms)
-    glossary_str = "\n".join([f"- {en} → {vi}" for en, vi in glossary.items()]) if glossary else "Không có thuật ngữ đặc biệt."
+    # Format glossary as type-grouped sections (A1: hierarchical retrieval)
+    glossary_str = format_glossary_by_type(glossary) or "Không có thuật ngữ đặc biệt."
     
     # Format relations as table (same as _format_relations_to_table)
     relations_table = _format_relations_to_table(relations)
