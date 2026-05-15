@@ -6,6 +6,7 @@ from modules.graph_manager import GraphManager
 from modules.translation_memory import TranslationMemory
 from core.llm_backend import LocalQwenLLM, GeminiAPILLM, GroqLLM, OpenRouterLLM, LangDBLLM, NVIDIALLM, CloudfareLLM, OllamaLLM, OpenAICompatLLM
 from core.pipeline import GraphRAGPipeline, SimplePipeline, PostEditingPipeline
+from modules.coreference import CoreferenceResolver
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Novel Translation System")
@@ -67,6 +68,25 @@ def parse_args():
         type=str,
         default="",
         help="Optional suffix appended to experiment dir name (for ablation: e.g. 'tm' or 'notm')",
+    )
+    parser.add_argument(
+        "--a2-coref",
+        dest="use_a2_coref",
+        action="store_true",
+        default=False,
+        help="Enable A2: fastcoref-based deterministic entity injection + tight glossary filter (default: off).",
+    )
+    parser.add_argument(
+        "--no-a2-coref",
+        dest="use_a2_coref",
+        action="store_false",
+        help="Disable A2 (use spaCy+LLM injection path).",
+    )
+    parser.add_argument(
+        "--a2-device",
+        type=str,
+        default="cuda",
+        help="Device for fastcoref model ('cuda' or 'cpu'); ignored when --a2-coref is off.",
     )
     parser.add_argument(
         "--chap-start",
@@ -169,6 +189,14 @@ def main():
                     print(f"   📚 TM loaded: {len(tm)} entries from {experiment_data_path}")
             else:
                 print("   🚫 TM disabled (--no-tm)")
+            a2_resolver = None
+            if args.use_a2_coref:
+                print(f"   🔗 A2 coref: loading fastcoref on {args.a2_device}...")
+                a2_resolver = CoreferenceResolver(device=args.a2_device)
+                a2_resolver._ensure_loaded()  # fail fast at startup, not mid-chapter
+                print(f"   ✅ A2 coref ready (device={a2_resolver.device}).")
+            else:
+                print("   🚫 A2 coref disabled (--no-a2-coref).")
             pipeline = PostEditingPipeline(
                 llm, gm,
                 injection_llm=injection_llm,
@@ -176,6 +204,7 @@ def main():
                 translation_memory=tm,
                 tm_k=args.tm_k,
                 tm_min_similarity=args.tm_min_similarity,
+                a2_resolver=a2_resolver,
             )
         else:
             print("📌 Using GraphRAG Pipeline (Single-Pass Injection)")

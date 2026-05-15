@@ -3,6 +3,7 @@ import re
 from abc import ABC, abstractmethod
 from utils import split_text_with_overlap, extract_json_from_response, get_spacy_candidates, filter_similar_names, has_chinese_char, clean_entity_tags, count_tokens, add_placeholder_regex, count_sentences, get_last_sentences
 from modules.prompts import build_extraction_prompt, build_glossary_extraction_prompt, build_translation_prompt, build_entity_injection_prompt, build_draft_translation_prompt, build_post_editing_prompt
+from modules.output_filter import contamination_score
 import const
 import spacy
 
@@ -319,13 +320,19 @@ class PostEditingPipeline(BasePipeline):
     """
     def __init__(self, llm_backend, graph_manager, injection_llm=None,
                  non_interactive=False, translation_memory=None, tm_k=3,
-                 tm_min_similarity=0.3, tm_min_score=None):
+                 tm_min_similarity=0.3, tm_min_score=None,
+                 a2_resolver=None):
         super().__init__(llm_backend, graph_manager, non_interactive=non_interactive)
         self.injection_llm = injection_llm
         self.tm = translation_memory
         self.tm_k = tm_k
         self.tm_min_similarity = tm_min_similarity
         self.tm_min_score = tm_min_score
+        # A2: optional CoreferenceResolver. When provided, Step B uses
+        # deterministic coref-based entity injection instead of the spaCy+LLM
+        # path, and Step C's glossary/relation filter is tightened with the
+        # coref-resolved canonical entity set.
+        self.a2_resolver = a2_resolver
 
     def process_chapter(self, text, chap_idx, out_path):
         print(f"🚀 RUNNING: PostEditing Pipeline for Chapter {chap_idx}")
@@ -481,32 +488,55 @@ class PostEditingPipeline(BasePipeline):
             print(f"\t   [B] Generating reference...")
             chunk_entities = filter_similar_names(get_spacy_candidates(chunk))
             self.gm.update_active_memory(chunk_entities)
-            
-            if chunk_entities:
+
+            # A2 path: deterministic coref-based injection. Skips the spaCy NER
+            # candidate filter (fastcoref does its own mention detection) and
+            # the LLM injection call entirely. Falls through to the LLM path
+            # only when no resolver is configured.
+            coref_entities = None
+            if self.a2_resolver is not None:
+                # Prepend prev_chunk_last_sentences so cross-chunk pronoun
+                # resolution can latch onto antecedents introduced earlier
+                # (fastcoref needs the antecedent inside its input window).
+                if prev_chunk_last_sentences:
+                    full_text = f"{prev_chunk_last_sentences} {chunk}"
+                    chunk_offset = len(prev_chunk_last_sentences) + 1
+                else:
+                    full_text = chunk
+                    chunk_offset = 0
+                injected_full, coref_result = self.a2_resolver.inject_entity_tags(full_text)
+                # Trim back to chunk extent: discard the prefix we prepended.
+                injected_ref = injected_full[chunk_offset:] if chunk_offset else injected_full
+                # Pull canonical entity set for downstream glossary filter.
+                coref_entities = coref_result.entities_mentioned()
+                print(f"   ℹ️ A2 coref: {len(coref_result.clusters)} clusters, "
+                      f"{len(coref_entities)} canonical entities, "
+                      f"{injected_ref.count('[')} tags emitted.")
+            elif chunk_entities:
                 chunk_with_placeholders = add_placeholder_regex(chunk)
                 num_brackets = chunk_with_placeholders.count("[]")
                 print(f"   ℹ️ Injection: {num_brackets} placeholders identified.")
-                
+
                 if num_brackets > 0:
                     # Prepend context for better coreference
                     if prev_chunk_last_sentences:
                         text_for_prompt = f"{prev_chunk_last_sentences} {chunk_with_placeholders}"
                     else:
                         text_for_prompt = chunk_with_placeholders
-                    
+
                     injection_prompt = build_entity_injection_prompt(
                         text_for_prompt, chunk_entities, num_brackets
                     )
                     print(f"   ℹ️ Injection Prompt Tokens: {count_tokens(injection_prompt)}")
-                    
+
                     response = self.call_llm_with_retry(
                         injection_prompt, const.TEMP_INJECTION,
                         llm_engine=self.injection_llm
                     )
-                    
+
                     # Remove <think> blocks if present
                     response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
-                    
+
                     # Reconstruct injected text
                     response_items = re.findall(r"\[.*?\]", response)
                     if len(response_items) == num_brackets:
@@ -522,10 +552,12 @@ class PostEditingPipeline(BasePipeline):
                     injected_ref = chunk
             else:
                 injected_ref = chunk
-            
+
             # === STEP C: POST-EDITING ===
             print(f"\t   [C] Post-editing...")
-            relevant_glossary, relevant_relations = self.gm.get_relevant_context(chunk)
+            relevant_glossary, relevant_relations = self.gm.get_relevant_context(
+                chunk, coref_entities=coref_entities
+            )
             
             edit_prompt = build_post_editing_prompt(
                 source_text=chunk,
@@ -543,6 +575,17 @@ class PostEditingPipeline(BasePipeline):
             if not final_trans or len(final_trans.strip()) < max(80, len(draft_trans) // 2):
                 print(f"   ⚠️ Post-edit returned empty/too-short ({len(final_trans.strip())} chars) — falling back to draft.")
                 final_trans = draft_trans
+
+            # Hygiene-2: contamination filter. If post-edit introduced CJK
+            # leak / pinyin / known English-token leak and the draft is
+            # cleaner, prefer the draft. Logs the diagnostic either way.
+            final_score, final_br = contamination_score(final_trans)
+            draft_score, draft_br = contamination_score(draft_trans)
+            if final_score > 0:
+                print(f"   ⚠️ Contamination in post-edit: score={final_score} {final_br}")
+                if draft_score < final_score:
+                    print(f"   ↩️ Draft cleaner (score={draft_score}) — using draft.")
+                    final_trans = draft_trans
 
             # --- INTERACTIVE REVIEW ---
             print(f"\n   --- DRAFT ---")
@@ -574,22 +617,23 @@ class PostEditingPipeline(BasePipeline):
         return full_trans
 
 class SimplePipeline(BasePipeline):
-    def process_chapter(self, text, chap_idx):
+    def process_chapter(self, text, chap_idx, out_path):
         print(f"🚀 RUNNING: Simple (No-RAG) Pipeline for Chapter {chap_idx}")
         # Không Mining, Không Context Graph
-        
+
         chunks = split_text_with_overlap(text, const.CHUNK_SIZE, 0)
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("")
         full_trans = ""
-        
-        for chunk in chunks:
-            # Chỉ truyền chunk text. 
-            # Các tham số glossary, relations_str, current_summary sẽ mặc định là None -> Kích hoạt Non-RAG Mode
-            prompt = build_translation_prompt(chunk) 
-            
+
+        for idx, chunk in enumerate(chunks):
+            print(f"\n\t📝 Processing chunk {idx+1}/{len(chunks)}")
+            prompt = build_translation_prompt(chunk)
             response = self.call_llm_with_retry(prompt, const.TEMP_CREATIVE)
-            
             parts = re.split(r"###\s*BẢN DỊCH", response, flags=re.IGNORECASE)
-            trans_text = parts[1].strip() if len(parts) > 1 else response
+            trans_text = parts[1].strip() if len(parts) > 1 else response.strip()
             full_trans += trans_text + "\n\n"
-            
+            with open(out_path, "a", encoding="utf-8") as f:
+                f.write(trans_text + "\n\n")
+
         return full_trans

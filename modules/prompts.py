@@ -465,7 +465,15 @@ def build_translation_prompt(chunk_text, glossary=None, relations_data=None, cur
         # =========================================================================
         # MODE 2: NON-RAG TRANSLATION (XML STYLE)
         # =========================================================================
-        
+
+        style_block = """
+<style_guide>
+- Văn phong: Tiểu thuyết phương Tây, bí ẩn, trôi chảy, văn học.
+- Tự suy luận xưng hô (anh/hắn/tôi/y/cô/nàng…) dựa trên ngữ cảnh và bối cảnh nhân vật.
+- KHÔNG bịa thêm chi tiết không có trong nguồn.
+</style_guide>
+"""
+
         # Prompt tối giản hơn vì không có dữ liệu tra cứu
         system_prompt = f"""
 <role_definition>
@@ -473,7 +481,14 @@ Bạn là Dịch Giả Văn Học chuyên nghiệp (Fantasy/Mystery).
 Nhiệm vụ: Dịch văn bản trong thẻ <input_text> sang Tiếng Việt.
 </role_definition>
 
-{style_instruction}
+<hard_rules>
+- TUYỆT ĐỐI không để chữ Hán (CJK) lẫn vào câu tiếng Việt — phải dùng từ Hán-Việt phiên âm.
+- TUYỆT ĐỐI không giữ token tiếng Anh giữa câu Việt (vd "ripples", "Whoosh") — phải dịch.
+- Tên nhân vật người Hoa: dùng âm Hán-Việt. "Zhou Mingrui" → "Chu Minh Thụy". KHÔNG giữ pinyin.
+- Tên nhân vật phương Tây (Klein, Audrey, Alger, Welch, Benson, Mountbatten…): giữ nguyên.
+</hard_rules>
+
+{style_block}
 
 <task_requirements>
 Thực hiện dịch thuật theo quy trình:
@@ -488,13 +503,19 @@ Thực hiện dịch thuật theo quy trình:
 
         # Few-shot cho Non-RAG (Đơn giản, tự suy luận)
         shot_1_user = """<input_text>The man sneered. "You will die here!" he [Lanevus] shouted.</input_text>"""
-        
+
         shot_1_assistant = """### PHÂN TÍCH
 - Nhân vật: Lanevus (Kẻ địch) đang đe dọa.
 - Xưng hô suy luận: Hắn (Kẻ xấu) - Ngươi (Đối thủ).
 
 ### BẢN DỊCH
 Gã đàn ông cười khẩy. "Ngươi sẽ phải bỏ mạng tại đây!" hắn [Lanevus] hét lên."""
+
+        user_content = f"""
+<input_text>
+{chunk_text}
+</input_text>
+"""
 
 
     messages = [
@@ -761,6 +782,17 @@ Nhiệm vụ: Dịch văn bản sang Tiếng Việt với văn phong trôi chả
   KHÔNG copy nguyên văn, KHÔNG dịch lại các câu trong ví dụ.
 </style_guide>
 
+<hard_rules>
+- TUYỆT ĐỐI không để chữ Hán (CJK) lẫn vào câu tiếng Việt. Nếu định viết "kinh悚",
+  hãy viết "kinh sợ" hoặc "kinh hoàng".
+- TUYỆT ĐỐI không giữ nguyên token tiếng Anh giữa câu Việt (ví dụ "ripples",
+  "Whoosh", "trademark"). Phải dịch hoặc dùng từ tượng thanh tiếng Việt.
+- Tên nhân vật người Hoa (pinyin trong nguồn): dùng âm Hán-Việt.
+  "Zhou Mingrui" → "Chu Minh Thụy". Không giữ pinyin.
+- Tên nhân vật phương Tây: giữ nguyên (Klein, Audrey, Alger, Welch, Benson,
+  Melissa, Dunn, Mountbatten...).
+</hard_rules>
+
 <output_format>
 Chỉ trả về bản dịch, không cần phân tích hay giải thích.
 </output_format>
@@ -885,6 +917,13 @@ def build_post_editing_prompt(source_text, draft_text, injected_reference, gloss
 Bạn là Biên tập viên Văn học chuyên nghiệp.
 Nhiệm vụ: Chỉnh sửa bản dịch nháp để đảm bảo tính nhất quán về thuật ngữ và đại từ xưng hô.
 </role_definition>
+
+<hard_rules>
+- TUYỆT ĐỐI không để chữ Hán (CJK) lẫn vào câu tiếng Việt — nếu có, sửa thành từ Việt tương đương.
+- TUYỆT ĐỐI không giữ nguyên token tiếng Anh giữa câu Việt (ví dụ "ripples", "Whoosh") — phải dịch.
+- Tên nhân vật người Hoa: dùng âm Hán-Việt theo <glossary> (ví dụ "Zhou Mingrui" → "Chu Minh Thụy"). KHÔNG giữ pinyin.
+- Tên nhân vật phương Tây trong <glossary>: giữ nguyên dạng.
+</hard_rules>
 
 {constraints}
 

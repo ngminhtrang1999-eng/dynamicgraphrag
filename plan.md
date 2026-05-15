@@ -1,6 +1,6 @@
 # Thesis Plan — Dynamic GraphRAG for Vietnamese Literary MT
 
-**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-15 (chap 7-10 ablation full + scale-out result + thesis pivot)
+**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-16 (A2 coref ablation — +6.2pp closure to GG, mechanism != design)
 
 > Resume note: this document captures where the project stands and what to do next.
 > Read this first when starting a new session. Memory entries (in `~/.claude/...`)
@@ -44,7 +44,9 @@
 | Week 2 — TM seed expansion chap 11-19 | done — 50 → 928 entries | uncommitted |
 | Week 3 — A1 Hierarchical retrieval | code complete (typed glossary schema + bucketed rendering) | committed d192ef2 |
 | Week 3 — chap 7-10 TM_on/TM_off generation + alignment + judge | done — n=484 ablation, n=540 vs GG | uncommitted |
-| Week 4 — A2 Coreference retrieval | not started |  |
+| Week 3 — Hygiene re-run chap 6-10 + judge | done — 55.0% vs TM_on (p=0.053), 32.0% vs GG | uncommitted |
+| Week 3 — Track 1 qualitative gap analysis | done — taxonomy + mechanism predictions for A2 | uncommitted |
+| Week 4 — A2 Coreference retrieval | **done — 53.5% vs hygiene (p=0.111), 38.2% vs GG (+6.2pp closure)** | uncommitted |
 | Week 5 — full ablation + B framework scale-up | not started |  |
 | Week 6 — write-up | not started |  |
 
@@ -401,7 +403,7 @@ Suggested approach:
 
 Output artifact: new file `evaluation/analysis/qualitative_gap_analysis.md` with summary table + 20 worked examples + design implications.
 
-#### Track 2: Implement A2 coreference + ablation (~6-10h)
+#### Track 2: Implement A2 coreference + ablation (DONE 2026-05-16 — see Section "A2 results" below)
 
 Goal: add fastcoref to resolve pronouns → entity IDs BEFORE glossary retrieval. Targets `register` axis (xưng hô) which Track 1 may flag as a residual gap.
 
@@ -445,3 +447,51 @@ Not in queued work but worth flagging: the qwen3:8b base model may be the real b
 - `data/LOTM/translations/trans_chap_{7..10}_qwen3-8b-local_yes_{tm,notm}.txt` — the
   ablation outputs themselves (8 files).
 - `data/LOTM/chapters_vi/chap_{11..19}.txt` — user-edited VN refs feeding TM seed.
+- `data/knowledge_base/qwen3-8b-local_yes_hygiene_a2on/` — A2 ablation experiment
+  dir (cloned from `_hygiene`; same TM + glossary + graph state, separate
+  translation_progress for the A2 re-run).
+- `data/LOTM/translations/trans_chap_{6..10}_qwen3-8b-local_yes_hygiene_a2on.txt`
+  — A2 ablation outputs.
+- `evaluation/alignment_results_qwen3-8b-local-a2/aligned_master_chap_{6..10}_a2_with_GG.csv`
+  — A2 alignment results with GG column merged.
+- `evaluation/llm_judge/pairwise_chap{6..10}_{A2_vs_Hygiene,A2_vs_GG}_deepseek-chat.csv`
+  — the ten A2 judge runs (5 chapters × 2 comparisons).
+- `evaluation/analysis/_a2_rationale_themes.log` — A2 theme-delta tables.
+
+## A2 results (2026-05-16) — quick reference
+
+Full analysis in `evaluation/analysis/qualitative_gap_analysis.md` section 5
+and `evaluation/analysis/thesis_insights.md` section 2 A2 entry.
+
+| Comparison | n decisive | A% | p (one-sided A>B) |
+|---|---:|---:|---:|
+| A2_on vs Hygiene | 325 | 53.5% | 0.111 (trending NOT sig) |
+| A2_on vs GG | 408 | 38.2% | <0.0001 GG still wins, but +6.2pp closer than Hygiene |
+
+**Mechanism finding (unexpected):** A2 did NOT lift the register axis
+(Δ+0.3pp on register_xung_ho — essentially tied). The actual lift came from
+`accuracy_mistrans` (Δ−6.5pp) and `terminology_hanviet` (Δ−3.7pp) via the
+coref-anchored glossary filter eliminating false-positive PERSON injections.
+Cost: `fluency_awkward` (Δ+9.4pp) from descriptive-NP canonical tags.
+
+**Updated next-actions:**
+
+1. Decision point: with 3 retrieval-side components done and GG gap still 28pp,
+   the marginal ROI on more retrieval engineering is low. Options:
+   - **Track 3 (deferred):** re-run chap 6-10 with a stronger base model
+     (deepseek-chat as translator OR qwen3-32b). Tests "is the residual gap
+     base-model bound?" Expected: large improvement if hypothesis correct.
+     Cost: ~$5-15 deepseek paid API, or ~12h Ollama for 32b (if VRAM allows).
+   - **LoRA fine-tune on chap 11-25 user-edits:** in-domain adaptation of
+     qwen3:8b on the user-validated parallel data. Higher engineering cost
+     (~1 week), unknown payoff.
+   - **Start write-up:** the current evidence base (n>2600 judged pairs,
+     three components, full failure-mode taxonomy, validated judge framework)
+     is sufficient for an MS thesis. Honest framing is "decomposition of
+     where small-LLM RAG can and cannot help, with quantitative ceiling".
+
+2. Optional immediate cleanup before pivoting:
+   - Improve `CoreferenceResolver._pick_canonical` to skip clusters with no
+     proper noun entirely (rather than fall back to descriptive NPs), which
+     should reduce A2's `fluency_awkward` cost. Quick A/B re-run on 1 chapter
+     would tell us if A2 in-pipeline lift reaches p<0.05 with cleaner tags.

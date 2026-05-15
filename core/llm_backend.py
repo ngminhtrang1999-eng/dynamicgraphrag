@@ -118,15 +118,16 @@ class GroqLLM(BaseLLM):
         self.model_name = target_model
 
     def generate(self, messages, temperature=0.3):
-        # [NEW] Throttling Logic for Groq Free Tier
-        # Đếm ngược 15 giây trước mỗi lần gọi API
-        print(f"   ⏳ Rate Limit Guard: Sleeping 30s...", end="", flush=True)
-        for i in range(30, 0, -1):
-            time.sleep(1)
-            # Sử dụng \r để ghi đè dòng hiện tại
-            print(f"\r   ⏳ Rate Limit Guard: Sleeping {i}s...   ", end="", flush=True)
-        
-        # Xóa dòng đếm ngược và thông báo đang gửi request
+        # Throttling for Groq free tier. Default 30s is overcautious; override
+        # via GROQ_SLEEP_SEC env var (e.g. =3 when running close to actual limit
+        # of 30 RPM). Set to 0 to disable entirely.
+        import os
+        sleep_sec = int(os.environ.get("GROQ_SLEEP_SEC", "30"))
+        if sleep_sec > 0:
+            print(f"   ⏳ Rate Limit Guard: Sleeping {sleep_sec}s...", end="", flush=True)
+            for i in range(sleep_sec, 0, -1):
+                time.sleep(1)
+                print(f"\r   ⏳ Rate Limit Guard: Sleeping {i}s...   ", end="", flush=True)
         print(f"\r   🚀 Sending Request to Groq...                 ")
 
         try:

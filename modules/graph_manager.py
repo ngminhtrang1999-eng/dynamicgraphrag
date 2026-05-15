@@ -192,50 +192,73 @@ class GraphManager:
         
         return relations
 
-    def get_relevant_context(self, chunk_text):
+    def get_relevant_context(self, chunk_text, coref_entities=None):
         """
         Filter glossary and relations to only include items relevant to current chunk.
-        
+
         Args:
-            chunk_text: The current chunk text
-            
+            chunk_text: The current chunk text.
+            coref_entities: Optional iterable of canonical entity names extracted
+                            by fastcoref (A2). When provided, PERSON-typed
+                            glossary entries and all relation filtering are
+                            tightened: the substring base match is preserved,
+                            but an additional check requires at least one coref
+                            entity to overlap the candidate term (kills
+                            false-positives like "Klein" matching "Klein"
+                            elsewhere when no coref cluster actually anchors it).
+
         Returns:
             Tuple[dict, list]: (filtered_glossary, filtered_relations)
-            
-        Note:
-            Simple substring matching may cause false positives (e.g., "ear" matches "bear").
-            Acceptable for thesis scope; consider regex \bterm\b for stricter matching if needed.
         """
         chunk_lower = chunk_text.lower()
+        coref_lower = {e.lower() for e in (coref_entities or [])}
 
-        # Filter glossary: only terms that appear in chunk (simple substring match).
-        # Output is a flat {term: entry_dict} mapping; type-bucketing happens in
-        # the prompt-rendering layer so callers that just want lookup keep working.
+        def _coref_anchors(term_lower):
+            """True iff some coref entity overlaps `term_lower` (or vice versa).
+            Handles 'Klein' matching 'Klein Moretti' both directions."""
+            if not coref_lower:
+                return True  # no hint = don't restrict
+            for e in coref_lower:
+                if e == term_lower or e in term_lower or term_lower in e:
+                    return True
+            return False
+
+        # Filter glossary: substring match in chunk + (for PERSON entries) coref anchor.
+        # Non-PERSON entries (CONCEPT/LOCATION/ITEM/ORG/DEITY/TITLE/UNKNOWN) keep
+        # substring-only — coref is character-centric and doesn't track those.
         filtered_glossary = {}
         for term, entry in self.glossary.items():
-            if term.lower() not in chunk_lower:
+            term_lower = term.lower()
+            if term_lower not in chunk_lower:
                 continue
             if isinstance(entry, dict):
-                filtered_glossary[term] = {
-                    "translation": entry.get("translation", ""),
-                    "type": (entry.get("type") or "UNKNOWN").upper(),
-                }
+                entry_type = (entry.get("type") or "UNKNOWN").upper()
+                translation = entry.get("translation", "")
             else:
-                # Legacy in-memory state (shouldn't happen after load_data migration, but safe)
-                filtered_glossary[term] = {"translation": str(entry), "type": "UNKNOWN"}
-        
+                entry_type = "UNKNOWN"
+                translation = str(entry)
+
+            if entry_type == "PERSON" and coref_lower and not _coref_anchors(term_lower):
+                # Substring matched but no coref cluster anchors this person in
+                # the chunk — likely a false positive (e.g. "Klein" inside a
+                # different word, or a stale mention). Skip.
+                continue
+
+            filtered_glossary[term] = {"translation": translation, "type": entry_type}
+
         # Filter relations: Get from active memory first
         all_relations = self.get_relations_data()
-        
+
         # Stopwords to skip when matching first name
         stopwords = {'the', 'a', 'an', 'of', 'and', 'or'}
-        
+
         # Helper: Check if entity name appears in text (handles "Klein" matching "Klein Moretti")
         def entity_in_text(entity_name, text_lower):
             if not entity_name:
                 return False
+            entity_lower = entity_name.lower()
             # Check full name
-            if entity_name.lower() in text_lower:
+            if entity_lower in text_lower:
                 return True
             # Get significant words (skip stopwords)
             words = [w for w in entity_name.split() if w.lower() not in stopwords]
@@ -246,16 +269,24 @@ class GraphManager:
             if first_significant.lower() in text_lower:
                 return True
             return False
-        
+
+        def entity_anchored(entity_name):
+            """Combine substring presence with coref anchoring when available."""
+            if not entity_in_text(entity_name, chunk_lower):
+                return False
+            if not coref_lower:
+                return True
+            return _coref_anchors(entity_name.lower())
+
         # Filter: only keep relations where BOTH entities appear in chunk
+        # (and, when coref hint is available, BOTH are coref-anchored)
         filtered_relations = []
         for r in all_relations:
             src = r.get("source", "")
             tgt = r.get("target", "")
-            # Require BOTH source and target to appear in chunk
-            if entity_in_text(src, chunk_lower) and entity_in_text(tgt, chunk_lower):
+            if entity_anchored(src) and entity_anchored(tgt):
                 filtered_relations.append(r)
-        
+
         return filtered_glossary, filtered_relations
 
     # --- CORE GRAPH LOGIC (Moved from test.py) ---
