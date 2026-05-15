@@ -376,41 +376,72 @@ Why chap 11-25 specifically: test set is chap 6-10 (per `const.START_CHAPTER=6`,
 
 If you want to crawl more chapters (26+) later: `python crawl_vntq.py --start 26 --end 30`.
 
-### Claude actions next session (after USER does A and B)
+### Claude actions next session (in order)
 
-1. **Read plan.md + project memory** (`~/.claude/projects/C--Users-trang/memory/`).
-2. **Check git status** + `git log` on `refactor/2026-thesis`.
-3. **Score Phase 3 results**: `python score_spot_check_v2.py` → report new vs old agreement on set 1, human vs judge on set 2. If ≥70% on set 1: document as paper finding. If <70%: dig into disagreements.
-4. **Align chap 11-25** (after user has edited the VN via `vntq_edit_app.py`): run `align_ablation.py` or `batch_alignment.py` with EN from `data/LOTM/chapters/chap_<N>.txt` (if present) and VN from `data/LOTM/chapters_vi/chap_<N>.txt` to produce `evaluation/alignment_results_*/aligned_master_chap_<N>.csv` for N=11..25. If EN source is missing for some chapters, alignment skips them and we can still use the VN-only text as TM seed (single-side embedding).
-5. **Expand TM seed**: `python seed_translation_memory.py --chapters 1,2,3,4,5,11,...,25 --max-pairs 1000` to populate TM with broader coverage.
-6. **Generate TM_on/TM_off translations for chap 7-10**: run `main.py` twice with `--experiment-suffix tm` (TM on) and `--experiment-suffix notm` (TM off) over chap 7-10. ~6-12 hours of Ollama background work (qwen3:8b WSL).
-7. **Align chap 7-10 ablation outputs** with `align_ablation.py` → `aligned_master_chap_{7,8,9,10}.csv` with TM_on/TM_off columns.
-8. **Run pairwise judge on chap 7-10 ablation**: `python batch_pairwise_judge.py --review evaluation/alignment_results_qwen3-8b-local-ablation/aligned_master_chap_<N>.csv --col-a TM_on --col-b TM_off --col-source Source_Text --col-ref ref --col-id Source_ID --default-chapter <N> --judge deepseek-chat --base-url https://api.deepseek.com --api-key-env DEEPSEEK_API_KEY --out evaluation/llm_judge/pairwise_ablation_chap<N>_TMon_vs_TMoff_deepseek-chat.csv`. Cost ~$1-2 total. Target combined n≥200 across chap 6-10 for sign-test p<0.05.
-9. **(Optional) Phase 4 calibration triples** if you want bulletproof paper methodology: hand-craft 10-15 src sentences with 3 versions each (Gold/Mid/Bad), validate judge picks Gold > Mid > Bad ≥95%. ~30 min Claude time + $0.10 API.
-10. **Then A1 — Hierarchical retrieval**: persist entity types in `graph_manager` schema (currently flat dict, needs `{term: {translation, type}}`). Update `get_relevant_context` to bucket by type. Update prompts to render glossary as separate sections.
+The negative scale-out result (2026-05-15) means the next investment goes into UNDERSTANDING the gap before scaling more experiments. Two tracks, in this order:
 
-## Files added/changed in this session (uncommitted as of 2026-05-13 pairwise/judge work)
+#### Track 1: Qualitative analysis of judge rationales (PRIORITY, ~30-60 min)
 
-Already committed in `7977c8a` (prior session): translation_memory.py, seed_translation_memory.py, align_ablation.py, pipeline.py changes, main.py ablation flags, prompts.py TM injection, knowledge_base ablation dirs, aligned_master_chap_6.csv, partial per-axis scores.
+Goal: data-driven hypothesis for WHY GG wins 67% / RAG+TM 33%. Tells us where A1/A2/base-model changes should target. Output: written analysis + paper narrative.
 
-Net new in this session (judge revision + Phase 3 + crawler/editor stack):
-- `batch_pairwise_judge.py` — pairwise runner with configurable column mapping + position-bias swap
-- `probe_judge_providers.py` — free-tier provider availability probe
-- `prepare_spot_check_v2.py` — Phase 3 data prep, 14 re-eval + 16 ablation anonymized
-- `review_app.py` — Flask UI for Phase 3 pairwise review (port 5000)
-- `score_spot_check_v2.py` — Phase 3 scoring vs deepseek-chat (per pair + aggregate)
-- `score_spot_check.py` — added `--rubric prose` for re-aggregation experiment
-- `modules/prompts.py` — added `build_literary_pairwise_judge_prompt`
-- `crawl_vntq.py` — vntq.eu LOTM Vietnamese crawler (low quality, fallback)
-- `vntq_edit_app.py` — Flask editor for vntq raw VN (port 5001)
-- `crawl_docln.py` — docln.net LOTM Vietnamese crawler via web.archive.org (high quality, 9/18 chap available)
-- `docln_align_app.py` — Flask 3-pane alignment editor: EN ↔ docln raw ↔ curated VN (port 5002)
-- `plan.md` — Phase 3 findings + alignment progress + next-session checklist
+Inputs available locally (all gitignored):
+- `evaluation/llm_judge/pairwise_chap{6..10}_TMon_vs_GG_deepseek-chat.csv` — n=540 pairs, each with `rationale_1` and `rationale_2` columns explaining the judge's choice.
+- `evaluation/llm_judge/pairwise_chap{6..10}_TMon_vs_TMoff_deepseek-chat.csv` — n=484, where TM helped vs hurt.
+- Source `aligned_master_chap_{6..10}_with_GG.csv` for ground-truth lookup.
 
-Output data (gitignored, kept locally):
-- `evaluation/llm_judge/pairwise_spot_check_for_review_deepseek-{chat,reasoner,chat_v2}.csv` — Phase 1 spot-check pairwise runs
-- `evaluation/llm_judge/pairwise_ablation_chap6_TMon_vs_TMoff_deepseek-chat.csv` — headline ablation, n=62
-- `evaluation/llm_judge/spot_check_v2_{pairs,key,responses}.csv` — Phase 3 inputs + user responses
-- `data/LOTM/chapters_vi_raw/chap_{11..25}.txt` — vntq raw crawl
-- `data/LOTM/chapters_vi_docln_raw/chap_{3,4,5,6,7,9,11,18,19}.txt` — docln raw crawl (9 chapters)
-- `data/LOTM/chapters_vi/chap_{3,4,5,6,7}.txt` — user-aligned VN references for EN chap 3-7
+Suggested approach:
+1. Load the 257 GG-wins rows (TM_on vs GG, final_choice=b). Concatenate both rationales per row.
+2. Pattern-mine: keyword frequency over Vietnamese terms (`tự nhiên`, `mượt mà`, `xưng hô`, `bỏ sót`, `dịch sai`, `Hán Việt`, `code-switch`, etc.). Count which rationale themes dominate when GG wins.
+3. Cross-tab with the 126 RAG-wins rows to find INVERSE patterns (where RAG dominates).
+4. Sample 10-15 RAG-loss examples to read in full + the corresponding 10-15 RAG-win examples. Build a qualitative taxonomy: fluency-loss, register-loss, accuracy-loss, terminology-loss, hallucination, code-switch, etc.
+5. Translate the taxonomy into thesis paragraphs:
+   - "GG dominates on [X] axes": data evidence + sampled examples.
+   - "RAG+TM dominates on [Y] axes": data evidence + sampled examples.
+   - "Implications for A2 design": specific axes A2 must target.
+
+Output artifact: new file `evaluation/analysis/qualitative_gap_analysis.md` with summary table + 20 worked examples + design implications.
+
+#### Track 2: Implement A2 coreference + ablation (~6-10h)
+
+Goal: add fastcoref to resolve pronouns → entity IDs BEFORE glossary retrieval. Targets `register` axis (xưng hô) which Track 1 may flag as a residual gap.
+
+Implementation steps:
+1. `pip install fastcoref` (~500MB LingMess-RoBERTa). Verify it loads in WSL graphrag env.
+2. New module `modules/coreference.py` with `CoreferenceResolver` wrapping fastcoref.predict(). Returns per-token cluster IDs + canonical entity name per cluster.
+3. Patch `core/pipeline.py` Step 4 (entity injection): BEFORE the LLM injection call, run fastcoref on the chunk → produce a tag mapping (pronoun span → entity ID). Use this to:
+   a. Improve the [Entity] tag accuracy (currently spaCy NER + LLM does this; fastcoref should be more precise).
+   b. Filter glossary retrieval to entities ACTUALLY referenced in the chunk (currently substring match, has false positives).
+4. Ablation harness: re-generate chap 6-10 with `--experiment-suffix a2on` (fastcoref active) vs `a2off` (current spaCy+LLM path). Same pairwise judge pipeline.
+5. Score: compare A2_on vs A2_off + A2_on vs GG. Targets aggregate decisive sign-test p<0.05.
+
+Expected impact: moderate. fastcoref is most-improved for chains of pronoun references in dialogue scenes (a chap-7-10 strength of GG per Track 1 hypothesis).
+
+#### Track 3 (DEFERRED): Strong base model
+
+Not in queued work but worth flagging: the qwen3:8b base model may be the real bottleneck. After A2 is tested, consider re-running chap 6-10 with `gemma3-27B` (NVIDIA NIM free tier still has quota?) or `deepseek-chat` as the translator (not just judge). If a 27B+ model with the same RAG/TM/A1/A2 components closes the gap, that's a clean thesis story: "small LLMs need more help than they get from RAG alone."
+
+### Helpers ready in working tree (uncommitted, regenerated as needed)
+
+- `_run_chap_7_10_TM_on.sh` / `_run_chap_7_10_TM_off.sh` — Ollama generation kickoff scripts
+- `_align_chap_7_10.sh` — LaBSE alignment for ablation outputs
+- `_merge_GG_chap_7_10.sh` — adds GG column from llama-3.1-8B aligned results
+- `_judge_chap_7_10.sh` — runs all 8 pairwise comparisons via deepseek-chat
+
+## Local output data (gitignored, kept on disk for next session)
+
+- `evaluation/alignment_results_qwen3-8b-local-ablation/aligned_master_chap_{6..10}.csv`
+  — full ablation src/ref/TM_on/TM_off; plus `_with_GG.csv` variants that include
+  GG column merged from llama-3.1-8B alignment.
+- `evaluation/alignment_results_reference/aligned_master_chap_{11..19}.csv` — TM seed
+  source pool from user-edited references.
+- `evaluation/llm_judge/pairwise_chap{6..10}_TMon_vs_{TMoff,GG}_deepseek-chat.csv` —
+  the ten judge runs (5 chapters × 2 comparisons) that drive the scale-out finding.
+- `evaluation/llm_judge/pairwise_chap6_TMoff_vs_GG_deepseek-chat.csv` — bookend showing
+  base RAG (no TM) loses to GG 80/20.
+- `data/knowledge_base/qwen3-8b-local_yes_tm/` — 928-entry TM + 107-term typed glossary
+  populated through chap 10.
+- `data/knowledge_base/qwen3-8b-local_yes_notm/` — TM_off twin (no TM, same glossary
+  via chap-6 cutoff).
+- `data/LOTM/translations/trans_chap_{7..10}_qwen3-8b-local_yes_{tm,notm}.txt` — the
+  ablation outputs themselves (8 files).
+- `data/LOTM/chapters_vi/chap_{11..19}.txt` — user-edited VN refs feeding TM seed.
