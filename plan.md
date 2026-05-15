@@ -1,6 +1,6 @@
 # Thesis Plan — Dynamic GraphRAG for Vietnamese Literary MT
 
-**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-14 (RAG vs GG baseline + TM seed expansion + A1 hierarchical retrieval)
+**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-15 (chap 7-10 ablation full + scale-out result + thesis pivot)
 
 > Resume note: this document captures where the project stands and what to do next.
 > Read this first when starting a new session. Memory entries (in `~/.claude/...`)
@@ -42,7 +42,8 @@
 | Week 2 — User edits VN chap 11-19 via vntq_edit_app | done | uncommitted (data only) |
 | Week 2 — RAG vs GG baseline pairwise judge | done — TM_on 43% / TM_off 20% decisive vs GG | uncommitted |
 | Week 2 — TM seed expansion chap 11-19 | done — 50 → 928 entries | uncommitted |
-| Week 3 — A1 Hierarchical retrieval | code complete (typed glossary schema + bucketed rendering) | uncommitted |
+| Week 3 — A1 Hierarchical retrieval | code complete (typed glossary schema + bucketed rendering) | committed d192ef2 |
+| Week 3 — chap 7-10 TM_on/TM_off generation + alignment + judge | done — n=484 ablation, n=540 vs GG | uncommitted |
 | Week 4 — A2 Coreference retrieval | not started |  |
 | Week 5 — full ablation + B framework scale-up | not started |  |
 | Week 6 — write-up | not started |  |
@@ -165,7 +166,81 @@ metric of interest. Per-pair agreement is reported as a secondary statistic with
 diagnostic of disagreement patterns (judge catches word-level slips humans miss
 when reading at prose level — see [[review-style-prose-level]] memory).
 
-## RAG vs GG baseline pairwise (2026-05-14, chap 6 only)
+## Chap 7-10 ablation full scale-out (2026-05-15)
+
+Generated TM_on (with the 928-entry expanded TM) and TM_off (no TM) translations for
+chap 7-10 on qwen3:8b WSL Ollama (~75 min each run). Aligned all four streams
+(src/ref/TM_on/TM_off) via `align_ablation.py`; merged GG column from
+`alignment_results_llama-3.1-8B/`. Eight pairwise judge runs via deepseek-chat with
+two-call position-bias swap (`batch_pairwise_judge.py`). Output CSVs under
+`evaluation/llm_judge/pairwise_chap{7..10}_{TMon_vs_TMoff,TMon_vs_GG}_deepseek-chat.csv`.
+
+**A3 ablation — TM_on (A) vs TM_off (B), aggregated chap 6-10:**
+
+| Chap | n | TM_on | TM_off | tie | TM_on % (decisive) | p (one-sided TM_on > TM_off) |
+|---|---|---|---|---|---|---|
+| 6 | 62 | 25 | 15 | 22 | 62.5% | 0.077 |
+| 7 | 107 | 24 | 31 | 52 | 43.6% | 0.860 |
+| 8 | 116 | 39 | 31 | 46 | 55.7% | 0.202 |
+| 9 | 108 | 32 | 34 | 42 | 48.5% | 0.644 |
+| 10 | 91 | 26 | 23 | 42 | 53.1% | 0.388 |
+| **TOTAL** | **484** | **146** | **134** | **204** | **52.1%** | **0.256 — NOT SIGNIFICANT** |
+
+**RAG+TM (A) vs GG (B):**
+
+| Chap | n | TM_on | GG | tie | TM_on % (decisive) | p (one-sided GG > TM_on) |
+|---|---|---|---|---|---|---|
+| 6 | 88 | 26 | 34 | 28 | 43.3% | 0.183 |
+| 7 | 106 | 24 | 49 | 33 | 32.9% | 0.002 |
+| 8 | 118 | 30 | 63 | 25 | 32.3% | 0.0004 |
+| 9 | 126 | 28 | 55 | 43 | 33.7% | 0.002 |
+| 10 | 102 | 18 | 56 | 28 | 24.3% | <0.0001 |
+| **TOTAL** | **540** | **126** | **257** | **157** | **32.9%** | **<0.0001 — GG WINS DECISIVELY** |
+
+## Scale-out findings + thesis pivot (2026-05-15)
+
+The two single-chapter signals from chap 6 — TM_on > TM_off (62.5%, p=0.077) and the
+~13-point gap to GG (43.3%, p=0.18) — both EVAPORATE at scale:
+
+1. **A3 (TM) does not significantly help across chap 6-10 (n=484, p=0.26).** The
+   chap-6 favorable result appears to be a chapter-specific outlier rather than a
+   generalizable mechanism. Per-chapter rates range 43.6% to 62.5%, centered ~52%.
+2. **RAG+TM loses decisively to Google Translate at scale (32.9% RAG / 67.1% GG,
+   p<0.0001 across all chapters except 6).** Even with expanded TM, the qwen3-8b
+   based pipeline produces translations that the judge prefers ~2:1 against GG.
+
+The thesis claim "smart dynamic RAG beats GG for literary MT with small LLMs" is
+NOT supported by these results. Pivot needed.
+
+**Honest paper framing — what we can defend:**
+- Built a rigorous reference-based pairwise judging framework (B framework) and
+  validated it against human review (per-pair noisy ~50%, aggregate within 1pp).
+- Measured the GG → RAG+TM gap precisely: 67% / 33% in GG's favor, consistent across
+  4 unseen chapters (chap 7-10). This is the most reliable number in the literature
+  for an 8B-class local-LLM RAG vs commercial MT on Vietnamese literary translation.
+- Identified that TM (A3) alone is insufficient to close the gap — needed
+  contributions in other components (A1 type-bucketed glossary already coded but
+  untested; A2 coreference not started).
+- Open question: does the gap close meaningfully with A1+A2 + a stronger base model
+  (qwen3-32B / gemma3-27B)? Empirical question, partly addressable.
+
+**Why the chap-6 signal was misleading:** chap 6 is the introduction of beyonder
+mechanics with dense terminology, where TM examples from chap 1 (also intro-heavy)
+gave the most lift. Chap 7-10 are operational scenes (Klein joining Nighthawks,
+training, first ritual) with action and dialogue rather than terminology — exactly
+where GG's fluency dominates and TM's terminology-anchoring helps less. The
+chapter-level variance is too high to draw conclusions from any single chapter.
+
+**Implications for upcoming work:**
+- A2 coreference may still help (targets xưng hô precisely); worth implementing
+  before declaring final results.
+- A1 hierarchical glossary needs to be ACTUALLY TESTED via re-generation on chap
+  6-10 with typed extraction populated; currently only the schema migration is
+  verified. Re-running the full ablation with A1 active = ~3h Ollama + 1h judge.
+- If A1+A2 still leaves the gap >50% in GG's favor, the honest thesis is:
+  "framework + measurement, not breakthrough." Still defensible as MS work.
+
+## RAG vs GG baseline pairwise (2026-05-14, chap 6 only — superseded by scale-out)
 
 deepseek-chat pairwise judging on chap 6 with TM_on/TM_off candidates merged with the
 GG column from `aligned_master_chap_6.csv` (Source_ID matches 1:1 across systems).
