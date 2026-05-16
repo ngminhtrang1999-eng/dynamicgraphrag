@@ -104,23 +104,18 @@ class GeminiAPILLM(BaseLLM):
     
 class GroqLLM(BaseLLM):
     def __init__(self, model_name="llama-3.1-8b-instant"):
-        """
-        Initializes Groq client. 
-        Ensure GROQ_API_KEY is set in your environment variables or const.py
-        """
-        # Lazy import
         from groq import Groq
 
         target_model = model_name
-        print(f"⏳ INITIALIZING GROQ API ({target_model})...")
-                
-        self.client = Groq(api_key=const.GROQ_API_KEY)
+        self.api_keys = [const.GROQ_API_KEY]
+        if const.GROQ_BACKUP_API_KEY:
+            self.api_keys.append(const.GROQ_BACKUP_API_KEY)
+        self._active_key_idx = 0
+        self._clients = [Groq(api_key=k) for k in self.api_keys]
         self.model_name = target_model
+        print(f"⏳ INITIALIZING GROQ API ({target_model}) — {len(self.api_keys)} key(s) available")
 
     def generate(self, messages, temperature=0.3):
-        # Throttling for Groq free tier. Default 30s is overcautious; override
-        # via GROQ_SLEEP_SEC env var (e.g. =3 when running close to actual limit
-        # of 30 RPM). Set to 0 to disable entirely.
         import os
         sleep_sec = int(os.environ.get("GROQ_SLEEP_SEC", "30"))
         if sleep_sec > 0:
@@ -128,65 +123,73 @@ class GroqLLM(BaseLLM):
             for i in range(sleep_sec, 0, -1):
                 time.sleep(1)
                 print(f"\r   ⏳ Rate Limit Guard: Sleeping {i}s...   ", end="", flush=True)
-        print(f"\r   🚀 Sending Request to Groq...                 ")
+        print(f"\r   🚀 Sending Request to Groq (key #{self._active_key_idx + 1})            ")
 
-        try:
-            chat_completion = self.client.chat.completions.create(
-                messages=messages,
-                model=self.model_name,
-                temperature=temperature,
-                max_tokens=const.MAX_NEW_TOKENS, # Ensure this exists in const.py
-                top_p=1,
-                stop=None,
-                stream=False
-            )
-            return chat_completion.choices[0].message.content
-        except Exception as e:
-            print(f"   ⚠️ Groq API Error: {e}")
-            raise e
+        last_err = None
+        for attempt_idx in range(self._active_key_idx, len(self._clients)):
+            client = self._clients[attempt_idx]
+            try:
+                chat_completion = client.chat.completions.create(
+                    messages=messages,
+                    model=self.model_name,
+                    temperature=temperature,
+                    max_tokens=const.MAX_NEW_TOKENS,
+                    top_p=1,
+                    stop=None,
+                    stream=False
+                )
+                self._active_key_idx = attempt_idx
+                return chat_completion.choices[0].message.content
+            except Exception as e:
+                last_err = e
+                err_str = str(e).lower()
+                is_rate_limit = "rate_limit" in err_str or "429" in err_str or "tpd" in err_str or "tokens per day" in err_str
+                if is_rate_limit and attempt_idx + 1 < len(self._clients):
+                    print(f"   🔁 Key #{attempt_idx + 1} hit rate limit; switching to backup key #{attempt_idx + 2}")
+                    continue
+                print(f"   ⚠️ Groq API Error: {e}")
+                raise e
+        raise last_err if last_err else Exception("All Groq keys failed")
 
 class OpenRouterLLM(BaseLLM):
     def __init__(self, model_name="google/gemma-3-27b-it:free"):
         self.model_name = model_name
-        self.api_key = const.OPENROUTER_API_KEY
-        print(f"⏳ INITIALIZING OPENROUTER API ({self.model_name})...")
+        self.api_keys = [const.OPENROUTER_API_KEY]
+        if const.OPENROUTER_BACKUP_API_KEY:
+            self.api_keys.append(const.OPENROUTER_BACKUP_API_KEY)
+        self._active_key_idx = 0
+        print(f"⏳ INITIALIZING OPENROUTER API ({self.model_name}) — {len(self.api_keys)} key(s) available")
+
+    def _post(self, key, payload):
+        return requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            data=json.dumps(payload),
+        )
 
     def generate(self, messages, temperature=0.3):
-        print(f"   🚀 Sending Request to OpenRouter ({self.model_name})...")
-        
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        
-        # OpenRouter expects "messages" and "model"
-        payload = {
-            "model": self.model_name,
-            "messages": messages,
-            # "temperature": temperature, # Optional, adding if supported/needed
-        }
-        
-        try:
-            response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                data=json.dumps(payload)
-            )
-            
-            if response.status_code == 200:
-                response_json = response.json()
-                content = utils.extract_api_response_content(response_json)
-                if content:
-                    return content
-                else:
-                    return "" # Handle empty or failed extraction
-            else:
+        print(f"   🚀 Sending Request to OpenRouter ({self.model_name}) [key #{self._active_key_idx + 1}]")
+        payload = {"model": self.model_name, "messages": messages}
+
+        last_err = None
+        for attempt_idx, key in enumerate(self.api_keys[self._active_key_idx:], start=self._active_key_idx):
+            try:
+                response = self._post(key, payload)
+                if response.status_code == 200:
+                    self._active_key_idx = attempt_idx
+                    content = utils.extract_api_response_content(response.json())
+                    return content if content else ""
+                if response.status_code in (429, 402) and attempt_idx + 1 < len(self.api_keys):
+                    print(f"   🔁 Key #{attempt_idx + 1} hit {response.status_code}; trying backup key #{attempt_idx + 2}")
+                    continue
                 print(f"   ⚠️ OpenRouter API Error: {response.status_code} - {response.text}")
                 raise Exception(f"OpenRouter API Error: {response.text}")
-                
-        except Exception as e:
-            print(f"   ⚠️ Request Failed: {e}")
-            raise e
+            except Exception as e:
+                last_err = e
+                if attempt_idx + 1 < len(self.api_keys):
+                    continue
+                raise
+        raise last_err if last_err else Exception("All OpenRouter keys failed")
 
 class LangDBLLM(BaseLLM):
     def __init__(self, model_name="deepinfra/gemma-3-27b-it"):

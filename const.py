@@ -20,6 +20,7 @@ MODEL_TYPE = "strong"
 
 # Groq Config
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_BACKUP_API_KEY = os.getenv("GROQ_BACKUP_API_KEY", "")
 
 # Langdb Config
 LANGDB_API_KEY = os.getenv("LANGDB_API_KEY", "")
@@ -27,6 +28,7 @@ LANGDB_PROJECT_ID = os.getenv("LANGDB_PROJECT_ID", "")
 
 # OpenRouter Config
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BACKUP_API_KEY = os.getenv("OPENROUTER_BACKUP_API_KEY", "")
 
 # Nvidia Config
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")

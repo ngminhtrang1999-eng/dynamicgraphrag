@@ -147,8 +147,7 @@ def main():
     elif args.model == "llama-4-maverick-17b-128e":
         llm = NVIDIALLM(model_name="meta/llama-4-maverick-17b-128e-instruct")
     elif args.model == "qwen3-235b-a22b":
-        # [Updated] OpenRouter
-        llm = OpenRouterLLM(model_name="qwen/qwen3-235b-a22b:free")
+        llm = OpenRouterLLM(model_name="qwen/qwen3-235b-a22b-2507")
     elif args.model == "deepseek-v3.1":
         llm = NVIDIALLM(model_name="deepseek-ai/deepseek-v3.1-terminus")
     # --- Local via Ollama ---
