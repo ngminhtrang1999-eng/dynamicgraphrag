@@ -1,6 +1,6 @@
 # Thesis Plan — Dynamic GraphRAG for Vietnamese Literary MT
 
-**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-16 (A2 coref ablation — +6.2pp closure to GG, mechanism != design)
+**Branch:** `refactor/2026-thesis` · **Last updated:** 2026-05-16 evening — **Track 3 full + DeepSeek ceiling + IEEE paper draft done. 4,131 paired judgments. Headline: DeepSeek+RAG 81.8% vs GG (Claude judge). 70B llama 23.4% vs GG (deepseek-chat judge). Domain fit > parameter count.**
 
 > Resume note: this document captures where the project stands and what to do next.
 > Read this first when starting a new session. Memory entries (in `~/.claude/...`)
@@ -47,8 +47,15 @@
 | Week 3 — Hygiene re-run chap 6-10 + judge | done — 55.0% vs TM_on (p=0.053), 32.0% vs GG | uncommitted |
 | Week 3 — Track 1 qualitative gap analysis | done — taxonomy + mechanism predictions for A2 | uncommitted |
 | Week 4 — A2 Coreference retrieval | **done — 53.5% vs hygiene (p=0.111), 38.2% vs GG (+6.2pp closure)** | uncommitted |
-| Week 5 — full ablation + B framework scale-up | not started |  |
-| Week 6 — write-up | not started |  |
+| Week 5 — A2 cleanup `_pick_canonical` (drop descriptive-NP fallback) | code done in `modules/coreference.py`, A/B re-run SKIPPED (story pivoted) | uncommitted |
+| Week 5 — Track 3 scale-out FULL chap 6-10 | **done — RAG_BIG 23.4% vs GG (n=410 dec, p<10⁻⁶); LOSES 8B+A2 (38.2%) by 15pp** | uncommitted |
+| Week 5 — Groq backup key wired into GroqLLM auto-failover | done (`core/llm_backend.py:105-150`); resume chap 9,10 ran early via backup | uncommitted |
+| Week 5 — OpenRouter backup key wired (qwen3-235b cancelled) | done (`core/llm_backend.py:148-200`) | uncommitted |
+| Week 5 — Objective metrics chrF+COMET all 6 systems | done — three metrics disagree on 70B story (chrF favors, COMET tied, judge penalizes) | uncommitted |
+| Week 5 — **DeepSeek-chat translator + Claude judge** ceiling test | **🏆 done — DeepSeek+RAG 81.8% vs GG (Claude Opus 4.7 judge, n=22 dec, p=0.002)** | uncommitted |
+| Week 5 — Thesis skeleton (`thesis/outline.md`) | done — 7-chapter map, evidence allocation | uncommitted |
+| Week 5 — **IEEE conference paper draft** (`thesis/paper_en.tex` + `paper_vn.tex`) | **done — Sections I-VII complete, EN+VN parallel, 5 tables, 6 worked examples, root cause analysis (R1-R5), 20 refs** | uncommitted |
+| Week 6 — paper finalization | pending — compile test, Figure 1 system architecture, trim to 6 pages, fill author info |  |
 
 ## Pending USER action
 
@@ -478,20 +485,25 @@ Cost: `fluency_awkward` (Δ+9.4pp) from descriptive-NP canonical tags.
 
 1. Decision point: with 3 retrieval-side components done and GG gap still 28pp,
    the marginal ROI on more retrieval engineering is low. Options:
-   - **Track 3 (deferred):** re-run chap 6-10 with a stronger base model
-     (deepseek-chat as translator OR qwen3-32b). Tests "is the residual gap
-     base-model bound?" Expected: large improvement if hypothesis correct.
-     Cost: ~$5-15 deepseek paid API, or ~12h Ollama for 32b (if VRAM allows).
+   - **Track 3 (DONE chap 6,7,8; chap 9,10 pending Groq reset 5/17):**
+     llama-3.3-70b via Groq tested. Result: 70B+RAG = 22.7% vs GG, LOSES to
+     8B+A2 (36.6%) by 14pp on matched chapters. **REFUTES "more params closes
+     the gap"** — supports "domain fit > parameter count" claim. Need
+     Chinese-rich frontier model (qwen3-235b, DeepSeek-V3.1) to test domain-fit
+     hypothesis directly.
    - **LoRA fine-tune on chap 11-25 user-edits:** in-domain adaptation of
-     qwen3:8b on the user-validated parallel data. Higher engineering cost
-     (~1 week), unknown payoff.
-   - **Start write-up:** the current evidence base (n>2600 judged pairs,
-     three components, full failure-mode taxonomy, validated judge framework)
-     is sufficient for an MS thesis. Honest framing is "decomposition of
-     where small-LLM RAG can and cannot help, with quantitative ceiling".
+     qwen3:8b on the user-validated parallel data. Now MORE justified given
+     Track 3 result — training-side intervention is the only retrieval-orthogonal
+     lever left. Higher engineering cost (~1 week), but expected payoff better
+     specified now.
+   - **Start write-up:** the current evidence base (n>2900 judged pairs after
+     Track 3 scale-out, three components + Hygiene + 70B scale-out, full
+     failure-mode taxonomy, validated judge framework, chrF+COMET+judge
+     three-metric comparison) is sufficient for an MS thesis. Honest framing
+     is "decomposition of where small-LLM RAG can and cannot help, with
+     quantitative ceiling and base-model attribution."
 
-2. Optional immediate cleanup before pivoting:
-   - Improve `CoreferenceResolver._pick_canonical` to skip clusters with no
-     proper noun entirely (rather than fall back to descriptive NPs), which
-     should reduce A2's `fluency_awkward` cost. Quick A/B re-run on 1 chapter
-     would tell us if A2 in-pipeline lift reaches p<0.05 with cleaner tags.
+2. Optional immediate cleanup (Task #9):
+   - `CoreferenceResolver._pick_canonical` cleanup CODE DONE (commit pending).
+     Drops descriptive-NP fallback when cluster has no proper noun. A/B re-run
+     on 1 chapter pending after Track 3 chap 9,10 complete.
