@@ -134,37 +134,23 @@ class CoreferenceResolver:
 
     @staticmethod
     def _pick_canonical(text: str, cluster: list[tuple[int, int]]) -> str:
-        """Pick canonical name for a cluster.
+        """Pick canonical proper-noun name for a cluster.
 
-        Strategy (in order, first non-empty wins):
-          1. Among non-pronoun mentions, prefer those containing a proper-noun
-             token (TitleCase, non-honorific, len>=3). Pick the LONGEST such
-             mention — so "Zhou Mingrui" beats "Zhou", and "Klein Moretti"
-             beats "Klein".
-          2. Fall back to the longest non-pronoun mention (descriptive NP).
-          3. Empty string if cluster is all pronouns.
-
-        This fixes a failure mode observed on LotM chap 6: fastcoref correctly
-        clusters Zhou Mingrui with He/him/his/I, but the cluster also contains
-        descriptive NPs like "the mysterious guy veiled in the grayish-white
-        fog" (43 chars). A pure-longest rule chooses the descriptive NP, which
-        breaks downstream glossary matching. Proper-noun preference solves it.
+        Returns the LONGEST mention containing a proper-noun token (TitleCase,
+        non-honorific, len>=3). Empty string if the cluster has no such mention
+        (anonymous cluster — downstream emits `[]` and skips glossary filter).
         """
         proper_best = ""
-        any_best = ""
         for start, end in cluster:
             mention = text[start:end].strip()
             if not mention or mention.lower() in _PRONOUN_MENTIONS:
                 continue
-            # Strip leading determiners ("the man" → "man").
             stripped = re.sub(r"^(the|a|an|that|this|those|these)\s+", "",
                               mention, flags=re.I).strip()
             candidate = stripped or mention
-            if len(candidate) > len(any_best):
-                any_best = candidate
             if _has_proper_noun_token(candidate) and len(candidate) > len(proper_best):
                 proper_best = candidate
-        return proper_best or any_best
+        return proper_best
 
     def inject_entity_tags(self, text: str,
                            candidate_filter: Optional[Iterable[str]] = None
