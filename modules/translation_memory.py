@@ -155,5 +155,52 @@ class TranslationMemory:
             )
         return out
 
+    def retrieve_random(self, source, k=3, min_score=None, rng=None):
+        """Random-exemplar baseline: pick k entries uniformly at random.
+
+        Mirrors retrieve()'s return schema and reports the *true* cosine
+        similarity of each randomly-picked exemplar to the query, so the draft
+        prompt is structurally identical to retrieval mode; only the selection
+        rule (uniform random vs. top-k) differs. Isolates the marginal value of
+        similarity retrieval over a static random few-shot prompt.
+
+        Args:
+            source: query EN text (used only to report similarity)
+            k: number of examples to return
+            min_score: filter on entry.score (None disables)
+            rng: optional random.Random for reproducibility (defaults to global)
+        """
+        import random as _random
+        if self.embeddings.shape[0] == 0 or not source.strip():
+            return []
+
+        idx = np.arange(len(self.entries))
+        if min_score is not None:
+            idx = np.array(
+                [i for i in idx if (self.entries[i].get("score") or 0) >= min_score],
+                dtype=int,
+            )
+        if idx.size == 0:
+            return []
+
+        q = self._embed([source])
+        sims = (self.embeddings @ q.T).flatten()
+
+        picker = rng or _random
+        chosen = picker.sample(list(idx), min(k, int(idx.size)))
+        out = []
+        for i in chosen:
+            entry_idx = int(i)
+            e = self.entries[entry_idx]
+            out.append(
+                {
+                    "source": e["source"],
+                    "translation": e["translation"],
+                    "score": e.get("score"),
+                    "similarity": float(sims[entry_idx]),
+                }
+            )
+        return out
+
     def __len__(self):
         return len(self.entries)

@@ -321,6 +321,7 @@ class PostEditingPipeline(BasePipeline):
     def __init__(self, llm_backend, graph_manager, injection_llm=None,
                  non_interactive=False, translation_memory=None, tm_k=3,
                  tm_min_similarity=0.3, tm_min_score=None,
+                 tm_random=False, tm_random_seed=42,
                  a2_resolver=None):
         super().__init__(llm_backend, graph_manager, non_interactive=non_interactive)
         self.injection_llm = injection_llm
@@ -328,6 +329,11 @@ class PostEditingPipeline(BasePipeline):
         self.tm_k = tm_k
         self.tm_min_similarity = tm_min_similarity
         self.tm_min_score = tm_min_score
+        # Random-few-shot baseline: pick TM exemplars uniformly at random
+        # instead of by LaBSE similarity, isolating the value of retrieval.
+        self.tm_random = tm_random
+        import random as _random
+        self.tm_rng = _random.Random(tm_random_seed)
         # A2: optional CoreferenceResolver. When provided, Step B uses
         # deterministic coref-based entity injection instead of the spaCy+LLM
         # path, and Step C's glossary/relation filter is tightened with the
@@ -458,17 +464,29 @@ class PostEditingPipeline(BasePipeline):
             print(f"\t   [A] Drafting...")
             tm_examples = None
             if self.tm is not None and len(self.tm) > 0:
-                tm_examples = self.tm.retrieve(
-                    chunk,
-                    k=self.tm_k,
-                    min_similarity=self.tm_min_similarity,
-                    min_score=self.tm_min_score,
-                )
-                if tm_examples:
-                    top_sim = tm_examples[0]["similarity"]
-                    print(f"   ℹ️ TM: {len(tm_examples)} examples retrieved (top sim={top_sim:.3f})")
+                if self.tm_random:
+                    tm_examples = self.tm.retrieve_random(
+                        chunk,
+                        k=self.tm_k,
+                        min_score=self.tm_min_score,
+                        rng=self.tm_rng,
+                    )
+                    if tm_examples:
+                        print(f"   ℹ️ TM[random]: {len(tm_examples)} random examples injected")
+                    else:
+                        print("   ℹ️ TM[random]: no examples available")
                 else:
-                    print("   ℹ️ TM: no examples above similarity threshold")
+                    tm_examples = self.tm.retrieve(
+                        chunk,
+                        k=self.tm_k,
+                        min_similarity=self.tm_min_similarity,
+                        min_score=self.tm_min_score,
+                    )
+                    if tm_examples:
+                        top_sim = tm_examples[0]["similarity"]
+                        print(f"   ℹ️ TM: {len(tm_examples)} examples retrieved (top sim={top_sim:.3f})")
+                    else:
+                        print("   ℹ️ TM: no examples above similarity threshold")
             draft_prompt = build_draft_translation_prompt(chunk, "", tm_examples=tm_examples)
             print(f"   ℹ️ Draft Prompt Tokens: {count_tokens(draft_prompt)}")
             draft_trans_raw = self.call_llm_with_retry(draft_prompt, const.TEMP_CREATIVE)

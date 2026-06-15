@@ -46,19 +46,13 @@ def main():
     results = {}
 
     # Within-pipeline ablations
+    # chap 6 lives in pairwise_ablation_chap6_... (62 rows, canonical);
+    # pairwise_chap6_TMon_vs_TMoff_... never existed.
     results["TM_on vs TM_off"] = agg(
-        [JUDGE_DIR / f"pairwise_chap{c}_TMon_vs_TMoff_deepseek-chat.csv" for c in chaps],
+        [JUDGE_DIR / "pairwise_ablation_chap6_TMon_vs_TMoff_deepseek-chat.csv"]
+        + [JUDGE_DIR / f"pairwise_chap{c}_TMon_vs_TMoff_deepseek-chat.csv" for c in chaps[1:]],
         "A3 Translation Memory: TM_on (A) vs TM_off (B), chap 6-10"
     )
-    # NOTE: pairwise_ablation_chap6 is the older n=22 partial; the chap 6 TMon_vs_TMoff was redone
-    # Check which chap 6 file is canonical:
-    f_old = JUDGE_DIR / "pairwise_ablation_chap6_TMon_vs_TMoff_deepseek-chat.csv"
-    f_new = JUDGE_DIR / "pairwise_chap6_TMon_vs_TMoff_deepseek-chat.csv"
-    print(f"\nChap 6 TM_on vs TM_off variants:")
-    for f in [f_old, f_new]:
-        if f.exists():
-            df = pd.read_csv(f, encoding="utf-8-sig")
-            print(f"  {f.name}: n={len(df)}")
 
     results["Hygiene vs TM_on"] = agg(
         [JUDGE_DIR / f"pairwise_chap{c}_Hygiene_vs_TMon_deepseek-chat.csv" for c in chaps],

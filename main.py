@@ -64,6 +64,14 @@ def parse_args():
         help="Cosine similarity floor for TM retrieval (default 0.3)",
     )
     parser.add_argument(
+        "--tm-random",
+        dest="tm_random",
+        action="store_true",
+        default=False,
+        help="Random-few-shot baseline: pick TM exemplars uniformly at random "
+             "instead of by LaBSE similarity (isolates value of retrieval).",
+    )
+    parser.add_argument(
         "--experiment-suffix",
         type=str,
         default="",
@@ -203,6 +211,7 @@ def main():
                 translation_memory=tm,
                 tm_k=args.tm_k,
                 tm_min_similarity=args.tm_min_similarity,
+                tm_random=args.tm_random,
                 a2_resolver=a2_resolver,
             )
         else:
