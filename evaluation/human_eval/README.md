@@ -12,7 +12,7 @@ win-rate**.
 | `human_eval_pairs.csv` | **Blind sheet.** 501 items. System identity hidden; A/B order randomized. *Not in the public repository (contains novel text); rebuild with `python build_human_eval_kit.py`.* |
 | `human_eval_key.csv` | **Truth (do not show raters).** True A/B identity + the LLM judge's verdict per item. IDs and labels only; published. |
 | `rater_app.html` | **One-click rating app** for non-technical raters (offline, double-click to open; exports `human_eval_rater_<name>.csv`). Regenerate with `build_rater_html.py`. *Not published (embeds the text).* |
-| `human_eval_rater_<name>.csv` | A rater's completed copy (from the app, or a hand-filled sheet copy). *Not published (private research records).* |
+| `human_eval_rater_<name>.csv` | A rater's completed copy (from the app, or a hand-filled sheet copy). Published as `human_eval_rater_rater1.csv` and `human_eval_rater_rater2.csv` (`item_id`, `choice` only). |
 
 ## Design
 
@@ -83,5 +83,6 @@ Rebuild the sheet (seed 42, reproducible) with `python build_human_eval_kit.py`.
 ## Participation record
 
 Both raters gave informed consent and were compensated. Public reporting uses
-the aliases **Rater 1** and **Rater 2**; raw filenames and annotations remain
-private research records. No institutional-review approval is claimed here.
+the aliases **Rater 1** and **Rater 2**. The per-item choices are published under
+these aliases (`human_eval_rater_rater1.csv`, `human_eval_rater_rater2.csv`);
+the raters' identities are not. No institutional-review approval is claimed here.

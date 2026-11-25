@@ -89,3 +89,4 @@ evaluation/objective_metrics/_test_*/
 !evaluation/human_eval/README.md
 !evaluation/human_eval/human_eval_key.csv
 evaluation/analysis/human_judge_calibration.csv
+!evaluation/human_eval/human_eval_rater_rater*.csv

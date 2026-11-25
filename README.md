@@ -79,7 +79,7 @@ python scripts/restore_labels.py
 | `tab:thesis-test-a/b` (metric columns), `fig:ch4-metrics`, `fig:ch4-chrf-chapters`, `fig:ch4-metric-judge` | chrF++ / COMET | `batch_evaluate_metrics.py` (needs rebuilt text) | → `evaluation/objective_metrics/*/_summary.csv` (published) |
 | `tab:cross-judge-rates`, `tab:appendix-rejudge` | Cross-judge agreement, re-judge sample | `python analyze_new_judgments.py` | `pairwise_*`, `rejudge_*` → `evaluation/analysis/cross_judge_agreement.csv`, `matched_judge_stability.csv` |
 | `fig:position-bias` | Position bias of the two-call judge | `python analyze_position_swap.py` | → `evaluation/analysis/position_swap_summary.csv` |
-| `tab:thesis-human` | Human evaluation | `build_human_eval_kit.py`, `score_human_eval.py` | see [Human evaluation](#human-evaluation) → `evaluation/analysis/human_*.csv` |
+| `tab:thesis-human` | Human evaluation | `python score_human_eval.py` (kit: `build_human_eval_kit.py`) | `evaluation/human_eval/` key + rater labels → `evaluation/analysis/human_*.csv` |
 | `fig:per-chapter`, `tab:appendix-chap-a`, `tab:appendix-chap-b` | Per-chapter rates and chapter features | `python evaluation/per_chapter_analysis.py` | → `evaluation/analysis/per_chapter_rates.csv`; `per_chapter_features.csv` needs rebuilt text |
 | `tab:ch4-examples`, `tab:ch4-themes` | Qualitative examples, rationale themes | `evaluation/analysis/extract_examples.py`, `mine_rationales*.py` | need full judge outputs with rationales (regenerate by re-judging) |
 | `tab:pilot-auto` | Pilot automatic metrics | `batch_evaluate_COMET.py`, `batch_evaluate_BLEURT.py`, `batch_evaluate_COMET_QE.py`, `batch_evaluate_entity_overall.py` | → `evaluation/*_overall_results.csv`, `evaluation/{comet,comet_qe,bleurt-20,m-eta}/` (published) |
@@ -104,11 +104,15 @@ Removed columns: `rationale_1`, `rationale_2`, and any `source`, `reference`, `c
 
 ## Human evaluation
 
-`evaluation/human_eval/human_eval_key.csv` gives, for each of the 501 items, the comparison, `(chapter,
-sentence_id)`, which system was shown as A/B and the LLM judge's verdict. The blind sheet with the text
-(`human_eval_pairs.csv`) can be rebuilt with `python build_human_eval_kit.py` (seed 42) once the aligned
-CSVs exist. Per-item rater annotations are private research records; aggregate results (Cohen's κ,
-human vs judge rates) are in `evaluation/analysis/human_*.csv`.
+| File | Content |
+|---|---|
+| `evaluation/human_eval/human_eval_key.csv` | For each of the 501 items: comparison, `(chapter, sentence_id)`, which system was shown as A/B, and the LLM judge's verdict |
+| `evaluation/human_eval/human_eval_rater_rater1.csv`, `…_rater2.csv` | Each rater's choice per item (`item_id`, `choice` ∈ {`A`, `B`, `tie`}); raters are identified by alias only |
+
+`python score_human_eval.py` and `python evaluation/paper_stats.py` reproduce Cohen's κ and the human vs
+judge rates (`evaluation/analysis/human_*.csv`) from these files alone. The blind sheet with the text
+(`human_eval_pairs.csv`) is not distributed; rebuild it with `python build_human_eval_kit.py` (seed 42)
+once the aligned CSVs exist.
 
 ## License and citation
 
