@@ -18,15 +18,27 @@ Paths:
 """
 
 import json
+import os
 from pathlib import Path
 from flask import Flask, render_template_string, request, redirect, url_for
 
 ROOT = Path(__file__).parent
 EN_DIR = ROOT / "data" / "LOTM" / "chapters"
-VI_RAW_DIR = ROOT / "data" / "LOTM" / "chapters_vi_raw"
+# LOTM_RAW_DIR env var overrides the raw-VN source dir (e.g. chapters_vi_pdf_raw
+# for PDF-derived text; vietnamthuquan crawling is banned as of 2026-06-10)
+VI_RAW_DIR = ROOT / "data" / "LOTM" / os.environ.get("LOTM_RAW_DIR", "chapters_vi_pdf_raw")
 VI_EDIT_DIR = ROOT / "data" / "LOTM" / "chapters_vi"
 
 app = Flask(__name__)
+
+
+def en_path(n):
+    """EN source lives as chapter_<N>.txt (full-novel dump) or legacy chap_<N>.txt."""
+    for name in (f"chapter_{n}.txt", f"chapter_{n:04d}.txt", f"chap_{n}.txt"):
+        p = EN_DIR / name
+        if p.exists():
+            return p
+    return EN_DIR / f"chap_{n}.txt"
 
 
 def list_chapters():
@@ -44,7 +56,7 @@ def list_chapters():
                 chapters.add(int(stem))
     out = []
     for n in sorted(chapters):
-        en = EN_DIR / f"chap_{n}.txt"
+        en = en_path(n)
         raw = VI_RAW_DIR / f"chap_{n}.txt"
         edited = VI_EDIT_DIR / f"chap_{n}.txt"
         meta = VI_RAW_DIR / f"chap_{n}.meta.json"
@@ -184,7 +196,7 @@ def index():
 
 @app.route("/chap/<int:n>")
 def edit_chapter(n):
-    en_text = load_text(EN_DIR / f"chap_{n}.txt")
+    en_text = load_text(en_path(n))
     edit_path = VI_EDIT_DIR / f"chap_{n}.txt"
     edited_exists = edit_path.exists()
     if edited_exists:

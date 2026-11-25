@@ -50,8 +50,30 @@ COMPARISONS = [
     ("deepseek_zs_vs_gg",  "DeepSeekZS", "alignment_results_deepseek_zs",    "DeepSeek_ZS"),
 ]
 
-# per comparison: how many to sample from each judge-verdict bucket
-N_A, N_B, N_TIE = 16, 16, 8  # 40 per comparison, 120 total
+# Representative sampling: ~TARGET_PER_COMP items per comparison, allocated to
+# the judge-verdict buckets (a/b/tie) IN PROPORTION to their true pool sizes, so
+# the sampled human decisive-win rate is directly comparable to the paper's judge
+# win-rate (rather than ~50% by construction as in a verdict-balanced design).
+TARGET_PER_COMP = 167  # 3 comparisons -> ~500 total
+
+
+def allocate(buckets, target):
+    """Split `target` picks across buckets proportionally to their sizes,
+    capped at availability, with the rounding remainder going to the buckets
+    with the largest fractional parts."""
+    sizes = {k: len(v) for k, v in buckets.items()}
+    total = sum(sizes.values())
+    if total == 0:
+        return {k: 0 for k in buckets}
+    target = min(target, total)
+    raw = {k: sizes[k] / total * target for k in buckets}
+    alloc = {k: int(raw[k]) for k in buckets}
+    rem = target - sum(alloc.values())
+    for k in sorted(buckets, key=lambda k: raw[k] - alloc[k], reverse=True)[:rem]:
+        alloc[k] += 1
+    for k in buckets:  # safety cap
+        alloc[k] = min(alloc[k], sizes[k])
+    return alloc
 
 
 def load_judge_verdicts(slug):
@@ -107,13 +129,17 @@ def sample_comparison(label, slug, dir_name, cand_col):
         if key in aligned:
             buckets[fc].append(key)
 
-    print(f"[{label}] available -> a:{len(buckets['a'])} b:{len(buckets['b'])} "
-          f"tie:{len(buckets['tie'])}")
+    alloc = allocate(buckets, TARGET_PER_COMP)
+    pa, pb = len(buckets["a"]), len(buckets["b"])
+    pool_rate = pa / (pa + pb) * 100 if (pa + pb) else float("nan")
+    print(f"[{label}] available -> a:{pa} b:{pb} tie:{len(buckets['tie'])} "
+          f"(pool decisive-win {pool_rate:.1f}%) | sampling "
+          f"a:{alloc['a']} b:{alloc['b']} tie:{alloc['tie']}")
 
     picked = (
-        random.sample(buckets["a"], min(N_A, len(buckets["a"])))
-        + random.sample(buckets["b"], min(N_B, len(buckets["b"])))
-        + random.sample(buckets["tie"], min(N_TIE, len(buckets["tie"])))
+        random.sample(buckets["a"], alloc["a"])
+        + random.sample(buckets["b"], alloc["b"])
+        + random.sample(buckets["tie"], alloc["tie"])
     )
 
     pairs, keys = [], []
