@@ -9,6 +9,8 @@
 /build
 /bleurt
 /BLEURT-20
+package.json
+package-lock.json
 
 # ------------------------------------
 # 2. Compiled Code / Artifacts
@@ -17,6 +19,7 @@
 *.log
 *.tmp
 *.bak
+*.aux
 
 # Python
 __pycache__/
@@ -27,18 +30,18 @@ __pycache__/
 # ------------------------------------
 .DS_Store
 Thumbs.db
+acl-recovery/
 
 # ------------------------------------
-# 4. IDE/Editor Files
+# 4. IDE/Editor/Agent Files
 # ------------------------------------
 .vscode/
 .idea/
 .data/
+.claude/
+.agents/
 *.iml
 google-cloud-sdk
-data
-old
-evaluation
 lib
 BlonDe
 bleurt
@@ -50,3 +53,39 @@ BLEURT-20
 # Environment files
 .env
 .local.env
+
+# ------------------------------------
+# 6. Copyrighted text and private material (never publish)
+# ------------------------------------
+# Novel text, translations, PDFs and anything extracted from them
+data
+old
+_pymupdf_full.txt
+_pdf_repaired.txt
+# Runtime state of Gemini batch jobs
+_batch_op_*.json
+
+# Thesis drafts, proposals, slides: private. Only the dataset statistics tool is public.
+thesis/**
+!thesis/**/
+!thesis/thesis-template-clean/tools/dataset_stats.py
+
+# Evaluation outputs: only scripts, aggregate numbers and ID+label files are public.
+# Per-sentence outputs with source/reference/translation text stay local.
+evaluation/**
+!evaluation/**/
+!evaluation/*.py
+!evaluation/*_summary.csv
+!evaluation/*_overall_results.csv
+!evaluation/bleurt-20/*.csv
+!evaluation/comet/*.csv
+!evaluation/comet_qe/*.csv
+!evaluation/m-eta/*.csv
+!evaluation/analysis/*.py
+!evaluation/analysis/*.csv
+!evaluation/objective_metrics/*/_summary.csv
+!evaluation/objective_metrics/*/_aggregate.csv
+evaluation/objective_metrics/_test_*/
+!evaluation/human_eval/README.md
+!evaluation/human_eval/human_eval_key.csv
+evaluation/analysis/human_judge_calibration.csv
