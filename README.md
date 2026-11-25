@@ -116,7 +116,9 @@ once the aligned CSVs exist.
 
 ## License and citation
 
-Code: MIT (see `LICENSE`). The license does not cover the novel or any translation of it.
+Code: MIT (see `LICENSE`). The ID+label files under `labels/` and `evaluation/` are released under the same terms.
+The license does not cover the novel *Lord of the Mysteries*, its translations, or any text derived from them;
+none of that text is distributed here.
 
 ```bibtex
 @misc{nguyen2026code,

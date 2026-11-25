@@ -297,6 +297,8 @@ def agreement():
     low, high = cluster_bootstrap_ci(
         stability_pairs, cluster_ids,
         lambda sample: sum(gemini - deepseek for deepseek, gemini in sample) / len(sample))
+    cross_p = cluster_sign_flip_p(
+        [gemini - deepseek for deepseek, gemini in stability_pairs], cluster_ids)
     cross_row = {field: "" for field in STABILITY_FIELDS}
     cross_row.update({
         "scope": "cross_family", "judge_family": "gemini35flash_minus_deepseek-chat",
@@ -307,8 +309,7 @@ def agreement():
         "stability_gap_bootstrap_ci95_low_pp": f"{low * 100:.6f}",
         "stability_gap_bootstrap_ci95_high_pp": f"{high * 100:.6f}",
         "discordant_negative_n": deepseek_only, "discordant_positive_n": gemini_only,
-        "cluster_randomization_p_raw": f"{cluster_sign_flip_p(
-            [gemini - deepseek for deepseek, gemini in stability_pairs], cluster_ids):.12g}",
+        "cluster_randomization_p_raw": f"{cross_p:.12g}",
         "bootstrap_samples": BOOTSTRAP_SAMPLES, "bootstrap_seed": BOOTSTRAP_SEED,
         "randomization_samples": RANDOMIZATION_SAMPLES,
     })
