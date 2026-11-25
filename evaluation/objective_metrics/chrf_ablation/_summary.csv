@@ -1,0 +1,16 @@
+﻿file,system,metric,n,score
+aligned_master_chap_10_with_GG,TM_on,chrf,96,30.550537846836207
+aligned_master_chap_10_with_GG,TM_off,chrf,84,31.75747896250772
+aligned_master_chap_10_with_GG,GG,chrf,98,35.539943667932114
+aligned_master_chap_6_with_GG,TM_on,chrf,73,23.618961561525463
+aligned_master_chap_6_with_GG,TM_off,chrf,57,22.702520470672173
+aligned_master_chap_6_with_GG,GG,chrf,86,29.380638357643146
+aligned_master_chap_7_with_GG,TM_on,chrf,84,25.71755951268184
+aligned_master_chap_7_with_GG,TM_off,chrf,87,26.852856557454047
+aligned_master_chap_7_with_GG,GG,chrf,88,32.33055199684689
+aligned_master_chap_8_with_GG,TM_on,chrf,101,29.08248236125261
+aligned_master_chap_8_with_GG,TM_off,chrf,108,27.666776402644196
+aligned_master_chap_8_with_GG,GG,chrf,112,34.175547963668016
+aligned_master_chap_9_with_GG,TM_on,chrf,109,25.83034926955261
+aligned_master_chap_9_with_GG,TM_off,chrf,100,27.282429867820568
+aligned_master_chap_9_with_GG,GG,chrf,121,29.64023563906368

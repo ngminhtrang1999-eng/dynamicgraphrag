@@ -1,0 +1,15 @@
+chapter,sentence_id,A_is,B_is
+6,0,RAG,No_RAG
+6,1,No_RAG,RAG
+6,2,No_RAG,RAG
+6,3,No_RAG,RAG
+6,4,RAG,No_RAG
+6,6,RAG,No_RAG
+6,7,RAG,No_RAG
+6,9,No_RAG,RAG
+6,11,No_RAG,RAG
+6,13,No_RAG,RAG
+6,15,No_RAG,RAG
+6,16,RAG,No_RAG
+6,17,No_RAG,RAG
+6,18,No_RAG,RAG

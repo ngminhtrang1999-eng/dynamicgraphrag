@@ -1,0 +1,5 @@
+﻿system,metric,n_total,score_mean
+DeepSeek,chrf,881,31.51999558738782
+DeepSeek,comet,881,0.755923467654377
+GG,chrf,1054,32.016002670710186
+GG,comet,1054,0.7670006806238585

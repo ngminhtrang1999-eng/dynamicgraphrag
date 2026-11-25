@@ -1,0 +1,6 @@
+comparison,matched_n,n_source_clusters,exact_agreement_n,exact_agreement_denominator,exact_agreement_rate,exact_agreement_ci95_low,exact_agreement_ci95_high,decisive_agreement_n,decisive_agreement_denominator,decisive_agreement_rate,decisive_agreement_ci95_low,decisive_agreement_ci95_high,old_candidate_wins,old_decisive_n,old_candidate_rate,new_candidate_wins,new_decisive_n,new_candidate_rate
+A2_vs_GG,100,100,65,100,0.650000,0.560000,0.740000,59,70,0.842857,0.753425,0.925373,28,76,0.368421,25,88,0.284091
+A2_vs_Hygiene,100,100,65,100,0.650000,0.560000,0.740000,56,63,0.888889,0.805960,0.962963,37,71,0.521127,46,83,0.554217
+Hygiene_vs_TMon,100,100,52,100,0.520000,0.420000,0.620000,47,53,0.886792,0.795918,0.963636,38,57,0.666667,61,91,0.670330
+RAGBIG_vs_GG,100,100,63,100,0.630000,0.530000,0.720000,58,66,0.878788,0.796610,0.951613,17,71,0.239437,24,90,0.266667
+TMon_vs_TMoff,100,100,61,100,0.610000,0.510000,0.700000,51,53,0.962264,0.904739,1.000000,31,57,0.543860,47,86,0.546512

@@ -1,0 +1,39 @@
+﻿kind,group,comparison,n_total,n_dec,a,b,tie,rate_pct,ci_low,ci_high,p_sign,diff_from_50,odds_ratio,notes
+judge,within_pipeline_A,TM_on_vs_TM_off,484,280,146,134,204,52.1,46.3,57.9,0.255506,2.1,1.08955,
+judge,within_pipeline_A,Hygiene_vs_TM_on,511,280,154,126,231,55.0,49.1,60.7,0.053228,5.0,1.22222,
+judge,within_pipeline_A,A2_vs_Hygiene,560,325,174,151,235,53.5,48.1,58.9,0.111139,3.5,1.15232,
+judge,vs_GG_A,TM_off_vs_GG,69,50,10,40,19,20.0,11.2,33.0,1.19307e-05,-30.0,0.25,
+judge,vs_GG_A,TM_on_vs_GG,540,383,126,257,157,32.9,28.4,37.8,9.88083e-12,-17.1,0.490272,
+judge,vs_GG_A,Hygiene_vs_GG,555,387,124,263,168,32.0,27.6,36.8,6.64149e-13,-18.0,0.471483,
+judge,vs_GG_A,A2_vs_GG,587,408,156,252,179,38.2,33.7,43.0,1.15683e-06,-11.8,0.619048,
+judge,vs_GG_A,RAG_BIG_vs_GG,573,410,96,314,163,23.4,19.6,27.7,2.03794e-28,-26.6,0.305732,
+judge,scale_70B_A,RAG_BIG_vs_NORAG_BIG,113,75,52,23,38,69.3,58.2,78.6,0.000539758,19.3,2.26087,
+judge,scale_70B_A,NORAG_BIG_vs_GG,109,86,14,72,23,16.3,10.0,25.5,7.22508e-11,-33.7,0.194444,
+judge,testB,Qwen_ZS_vs_GG,1007,906,214,692,101,23.6,21.0,26.5,1.03971e-59,-26.4,0.309249,
+judge,testB,Qwen_random_fewshot_vs_GG,1293,1161,318,843,132,27.4,24.9,30.0,1.4245e-55,-22.6,0.377224,
+judge,testB,Qwen_RAG_A2new_vs_GG,1210,1064,295,769,146,27.7,25.1,30.5,1.38204e-49,-22.3,0.383615,
+judge,testB,DeepSeek_ZS_vs_GG,1299,1143,692,451,156,60.5,57.7,63.3,5.21039e-13,10.5,1.53437,
+judge,testB,DeepSeek_RAG_vs_GG,1123,984,621,363,139,63.1,60.0,66.1,8.61722e-17,13.1,1.71074,
+judge,cross_judge,rejudge_TM_on_vs_TM_off,100,86,47,39,14,54.7,44.2,64.7,0.225274,4.7,1.20513,
+judge,cross_judge,rejudge_Hygiene_vs_TM_on,100,91,61,30,9,67.0,56.9,75.8,0.000758257,17.0,2.03333,
+judge,cross_judge,rejudge_A2_vs_Hygiene,100,83,46,37,17,55.4,44.7,65.6,0.19,5.4,1.24324,
+judge,cross_judge,rejudge_A2_vs_GG,100,88,25,63,12,28.4,20.0,38.6,3.13519e-05,-21.6,0.396825,
+judge,cross_judge,rejudge_RAG_BIG_vs_GG,100,90,24,66,10,26.7,18.6,36.6,5.45102e-06,-23.3,0.363636,
+human,inter_rater,rater1_vs_rater2,501,,288,213,,57.5,53.1,61.7,,,,cohen_kappa=0.361
+human,human_win_rate,deepseek_rag_vs_gg:rater1,167,130,66,64,37,50.8,42.3,59.2,0.465078,0.8,1.03125,judge_decisive_agreement=90/115; agreement_ci=69.9-84.8
+human,human_win_rate,deepseek_rag_vs_gg:rater2,167,116,66,50,51,56.9,47.8,65.5,0.0817116,6.9,1.32,judge_decisive_agreement=81/102; agreement_ci=70.6-86.1
+human,human_win_rate_pooled,deepseek_rag_vs_gg,334,246,132,114,88,53.7,47.4,59.8,0.139195,3.7,1.15789,judge_decisive_agreement=171/217; agreement_ci=72.9-83.7
+human,human_win_rate,deepseek_zs_vs_gg:rater1,167,95,53,42,72,55.8,45.8,65.4,0.152443,5.8,1.2619,judge_decisive_agreement=70/88; agreement_ci=70.0-86.7
+human,human_win_rate,deepseek_zs_vs_gg:rater2,167,106,67,39,61,63.2,53.7,71.8,0.0042085,13.2,1.71795,judge_decisive_agreement=72/94; agreement_ci=67.1-84.0
+human,human_win_rate_pooled,deepseek_zs_vs_gg,334,201,120,81,133,59.7,52.8,66.2,0.00360191,9.7,1.48148,judge_decisive_agreement=142/182; agreement_ci=71.5-83.4
+human,human_win_rate,qwen_a2_vs_gg:rater1,167,115,30,85,52,26.1,18.9,34.8,1.43033e-07,-23.9,0.352941,judge_decisive_agreement=94/106; agreement_ci=81.2-93.4
+human,human_win_rate,qwen_a2_vs_gg:rater2,167,121,39,82,46,32.2,24.6,41.0,5.77373e-05,-17.8,0.47561,judge_decisive_agreement=92/113; agreement_ci=73.3-87.5
+human,human_win_rate_pooled,qwen_a2_vs_gg,334,236,69,167,98,29.2,23.8,35.3,7.43934e-11,-20.8,0.413174,judge_decisive_agreement=186/219; agreement_ci=79.6-89.1
+human,human_win_rate,ALL:rater1,501,340,149,191,161,43.8,38.6,49.1,0.0130173,-6.2,0.780105,judge_decisive_agreement=254/309; agreement_ci=77.5-86.1
+human,human_win_rate,ALL:rater2,501,343,172,171,158,50.1,44.9,55.4,0.5,0.1,1.00585,judge_decisive_agreement=245/309; agreement_ci=74.4-83.4
+human,human_win_rate_pooled,ALL,1002,683,321,362,319,47.0,43.3,50.7,0.0629084,-3.0,0.88674,judge_decisive_agreement=499/618; agreement_ci=77.4-83.7
+validation,cross_judge_agreement,A2_vs_GG,100,70,59,11,,84.3,74.0,91.0,,,,exact_agreement=65/100; old_A_rate=36.8; new_A_rate=28.4
+validation,cross_judge_agreement,A2_vs_Hygiene,100,63,56,7,,88.9,78.8,94.5,,,,exact_agreement=65/100; old_A_rate=52.1; new_A_rate=55.4
+validation,cross_judge_agreement,Hygiene_vs_TMon,100,53,47,6,,88.7,77.4,94.7,,,,exact_agreement=52/100; old_A_rate=66.7; new_A_rate=67.0
+validation,cross_judge_agreement,RAGBIG_vs_GG,100,66,58,8,,87.9,77.9,93.7,,,,exact_agreement=63/100; old_A_rate=23.9; new_A_rate=26.7
+validation,cross_judge_agreement,TMon_vs_TMoff,100,53,51,2,,96.2,87.2,99.0,,,,exact_agreement=61/100; old_A_rate=54.4; new_A_rate=54.7

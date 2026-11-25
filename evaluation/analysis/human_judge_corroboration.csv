@@ -1,0 +1,7 @@
+comparison,candidate_system,rater,n_items,n_source_clusters,human_candidate_wins,human_decisive_n,human_rate,human_rate_ci95_low,human_rate_ci95_high,judge_candidate_wins,judge_decisive_n,judge_rate,judge_rate_ci95_low,judge_rate_ci95_high,human_judge_gap_pp,gap_bootstrap_ci95_low_pp,gap_bootstrap_ci95_high_pp,decisive_agreement_n,decisive_agreement_denominator,decisive_agreement_rate,decisive_agreement_ci95_low,decisive_agreement_ci95_high
+deepseek_rag_vs_gg,DeepSeek,Rater 1,167,167,66,130,0.507692,0.422774,0.592169,92,146,0.630137,0.549430,0.704171,-12.244468,-20.812218,-3.730970,90,115,0.782609,0.698755,0.848192
+deepseek_rag_vs_gg,DeepSeek,Rater 2,167,167,66,116,0.568966,0.478064,0.655446,92,146,0.630137,0.549430,0.704171,-6.117147,-15.130022,2.742751,81,102,0.794118,0.705675,0.861211
+deepseek_zs_vs_gg,DeepSeek_ZS,Rater 1,167,167,53,95,0.557895,0.457711,0.653578,89,147,0.605442,0.524713,0.680800,-4.754744,-14.539095,5.100295,70,88,0.795455,0.699680,0.866513
+deepseek_zs_vs_gg,DeepSeek_ZS,Rater 2,167,167,67,106,0.632075,0.537154,0.717758,89,147,0.605442,0.524713,0.680800,2.663329,-7.032619,12.327449,72,94,0.765957,0.670973,0.840058
+qwen_a2_vs_gg,A2,Rater 1,167,167,30,115,0.260870,0.189275,0.347924,41,147,0.278912,0.212753,0.356331,-1.804200,-9.174096,5.424174,94,106,0.886792,0.812487,0.934043
+qwen_a2_vs_gg,A2,Rater 2,167,167,39,121,0.322314,0.245617,0.409946,41,147,0.278912,0.212753,0.356331,4.340248,-3.634057,12.553775,92,113,0.814159,0.732548,0.875113

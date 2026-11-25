@@ -1,0 +1,3 @@
+﻿system,metric,n_total,score_mean
+RAG_BIG,chrf,487,29.5402843393193
+RAG_BIG,comet,487,0.7417395646543143

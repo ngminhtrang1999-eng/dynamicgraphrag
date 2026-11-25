@@ -1,0 +1,4 @@
+﻿system,metric,n_total,score_mean
+GG,chrf,505,32.21338352503077
+TM_off,chrf,436,27.252412452219737
+TM_on,chrf,463,26.959978110369747

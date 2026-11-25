@@ -1,0 +1,15 @@
+chapter,sentence_id,call_1_choice,call_2_choice_unswapped,final_choice,judge_model
+6,0,a,a,a,deepseek-reasoner
+6,1,b,tie,tie,deepseek-reasoner
+6,2,a,a,a,deepseek-reasoner
+6,3,tie,tie,tie,deepseek-reasoner
+6,4,a,a,a,deepseek-reasoner
+6,6,b,b,b,deepseek-reasoner
+6,7,b,b,b,deepseek-reasoner
+6,9,b,b,b,deepseek-reasoner
+6,11,PARSE_ERR,b,PARSE_ERR,deepseek-reasoner
+6,13,a,a,a,deepseek-reasoner
+6,15,b,b,b,deepseek-reasoner
+6,16,a,a,a,deepseek-reasoner
+6,17,PARSE_ERR,PARSE_ERR,PARSE_ERR,deepseek-reasoner
+6,18,a,a,a,deepseek-reasoner

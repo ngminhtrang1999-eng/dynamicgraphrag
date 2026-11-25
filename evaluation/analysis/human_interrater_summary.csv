@@ -1,0 +1,2 @@
+rater_a,rater_b,n_items,n_source_clusters,cohen_kappa,raw_agreement_n,cohen_kappa_ci95_low,cohen_kappa_ci95_high,raw_agreement_rate,raw_agreement_ci95_low,raw_agreement_ci95_high,bootstrap_samples,bootstrap_seed
+Rater 1,Rater 2,501,436,0.361164,288,0.294656,0.425223,0.574850,0.531185,0.618182,10000,42
