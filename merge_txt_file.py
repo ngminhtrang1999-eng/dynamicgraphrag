@@ -50,8 +50,8 @@ def merge_files_in_folder(folder_path, output_filename):
 
 # The exact folder names from your screenshot
 folders_to_process = [
-    "C:/Users/trang/OneDrive/Desktop/Dynamic GraphRAG/data/LOTM/translations/gemini-2.5-flash_No_RAG",
-    "C:/Users/trang/OneDrive/Desktop/Dynamic GraphRAG/data/LOTM/translations/gemini-2.5-flash_RAG"
+    "data/LOTM/translations/gemini-2.5-flash_No_RAG",
+    "data/LOTM/translations/gemini-2.5-flash_RAG"
 ]
 
 # Run the merge for each folder

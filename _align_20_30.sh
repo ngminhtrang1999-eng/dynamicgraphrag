@@ -2,7 +2,7 @@
 # Align chapters 20-30: DeepSeek_RAG vs GG, and DeepSeek_zero vs GG,
 # against the user-edited refs in chapters_vi/.
 set -uo pipefail
-cd "/mnt/d/Dynamic GraphRAG"
+cd "$(dirname "$0")"
 export PYTHONIOENCODING=utf-8
 
 RAG_DIR=evaluation/alignment_results_deepseek_20_30

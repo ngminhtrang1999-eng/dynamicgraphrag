@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-cd "/mnt/d/Dynamic GraphRAG"
-export PATH="/home/macpham/miniconda3/envs/graphrag/bin:$PATH"
+cd "$(dirname "$0")"
+# Requires the project environment to be active (e.g. `conda activate graphrag`).
 export PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
 for i in $(seq 1 48); do
   echo "=== attempt $i $(date) ==="

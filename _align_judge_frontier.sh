@@ -11,7 +11,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 
 LOG="frontier_align_judge_$(date +%Y%m%d_%H%M%S).log"
 OUT_DIR=evaluation/alignment_results_frontier

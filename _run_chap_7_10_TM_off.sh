@@ -2,7 +2,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 python -u main.py \
   --model qwen3-8b-local \
   --rag yes \

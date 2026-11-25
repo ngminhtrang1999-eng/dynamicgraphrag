@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Gemini re-judge of the n=500 stratified sample from the chapters-6-10 evidence.
 set -uo pipefail
-cd "/mnt/d/Dynamic GraphRAG"
+cd "$(dirname "$0")"
 export PYTHONIOENCODING=utf-8
 
 GEM_URL=https://generativelanguage.googleapis.com/v1beta/openai/

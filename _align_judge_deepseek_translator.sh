@@ -5,7 +5,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 
 OUT_DIR=evaluation/alignment_results_deepseek_translator
 mkdir -p "$OUT_DIR"

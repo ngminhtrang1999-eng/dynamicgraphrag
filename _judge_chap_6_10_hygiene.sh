@@ -6,7 +6,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 
 CSV_DIR=evaluation/alignment_results_qwen3-8b-local-hygiene
 OUT_DIR=evaluation/llm_judge

@@ -23,7 +23,7 @@
 - Python: WSL miniconda env `graphrag` (Python 3.11, has openai/spacy/torch+CUDA/transformers/dotenv). Activate:
   ```
   source ~/miniconda3/etc/profile.d/conda.sh && conda activate graphrag
-  cd "/mnt/d/Dynamic GraphRAG"
+  cd "."
   ```
 
 ## Status snapshot

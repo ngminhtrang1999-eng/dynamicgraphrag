@@ -8,7 +8,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 
 OUT_DIR=evaluation/alignment_results_qwen3-8b-local-a2
 mkdir -p "$OUT_DIR"

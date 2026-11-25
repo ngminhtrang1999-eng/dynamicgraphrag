@@ -4,6 +4,7 @@ The body font maps Vietnamese tone-composite glyphs to Ethiopic codepoints.
 For each distinct Ethiopic char, show frequency and most common (prev, next)
 contexts so the diacritic-repair mapping can be derived.
 """
+import os
 import re
 import unicodedata
 from collections import Counter, defaultdict
@@ -11,8 +12,8 @@ from pathlib import Path
 
 import fitz
 
-PDF = r"C:\Users\trang\Downloads\LOTM - Việt Hóa.pdf"
-CACHE = Path(r"D:\Dynamic GraphRAG\_pymupdf_full.txt")
+PDF = os.environ.get("LOTM_VI_PDF", "")  # path to your own copy of the PDF
+CACHE = Path(__file__).parent / "_pymupdf_full.txt"
 
 if CACHE.exists():
     full = CACHE.read_text(encoding="utf-8")

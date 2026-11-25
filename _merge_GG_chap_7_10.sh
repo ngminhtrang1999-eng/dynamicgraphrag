@@ -2,7 +2,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 python - <<'PY'
 import pandas as pd
 from pathlib import Path

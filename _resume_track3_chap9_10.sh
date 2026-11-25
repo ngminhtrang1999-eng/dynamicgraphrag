@@ -11,7 +11,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 
 LOG="track3_resume_$(date +%Y%m%d_%H%M%S).log"
 echo "=== Track 3 RESUME chap 9, 10 ===" | tee -a "$LOG"

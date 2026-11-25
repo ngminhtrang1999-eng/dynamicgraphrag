@@ -18,7 +18,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 
 SRC=data/knowledge_base/qwen3-8b-local_yes_hygiene
 DST=data/knowledge_base/qwen3-8b-local_yes_hygiene_a2on

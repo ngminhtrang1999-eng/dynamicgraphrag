@@ -13,7 +13,6 @@
 # from modules.prompts import build_evaluation_prompt # Import hàm prompt đánh giá từ file prompts.py
 
 # # --- CẤU HÌNH ĐƯỜNG DẪN CỐ ĐỊNH THEO YÊU CẦU ---
-# BASE_PATH = r"C:/Users/trang/OneDrive/Desktop/Dynamic GraphRAG/data/LOTM"
 # CHAPTERS_DIR = os.path.join(BASE_PATH, "chapters")
 # TRANS_A_DIR = os.path.join(BASE_PATH, "translations", "gemini-2.5-flash_No_RAG")
 # TRANS_B_DIR = os.path.join(BASE_PATH, "translations", "gemini-2.5-flash_RAG")

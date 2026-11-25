@@ -11,7 +11,7 @@
 #
 # Run from WSL conda env graphrag.
 set -uo pipefail
-cd "/mnt/d/Dynamic GraphRAG"
+cd "$(dirname "$0")"
 export PYTHONIOENCODING=utf-8
 export PYTHONUNBUFFERED=1
 

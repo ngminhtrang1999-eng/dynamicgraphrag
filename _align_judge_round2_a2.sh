@@ -2,7 +2,7 @@
 # Round 2: align Qwen A2 (20-30) vs GG now; judge after the Gemini daily-quota
 # reset (sleep gate set from launch time).
 set -uo pipefail
-cd "/mnt/d/Dynamic GraphRAG"
+cd "$(dirname "$0")"
 export PYTHONIOENCODING=utf-8
 
 GEM_URL=https://generativelanguage.googleapis.com/v1beta/openai/

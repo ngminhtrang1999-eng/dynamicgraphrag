@@ -11,6 +11,7 @@ Usage: python extract_pdf_chapters.py [--pdf PATH] [--out DIR] [--max-chap N]
 """
 
 import argparse
+import os
 import json
 import re
 import unicodedata
@@ -19,7 +20,8 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
-DEFAULT_PDF = r"C:\Users\trang\Downloads\LOTM - Việt Hóa.pdf"
+# Path to your own copy of the PDF: pass --pdf or set LOTM_VI_PDF.
+DEFAULT_PDF = os.environ.get("LOTM_VI_PDF", "")
 DEFAULT_OUT = Path(__file__).parent / "data" / "LOTM" / "chapters_vi_pdf_raw"
 
 TAP_RE = re.compile(r"^\s*Tập\s*(\d+)\b[^\n]*$", re.MULTILINE)
@@ -54,7 +56,8 @@ def clean_body(text: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pdf", default=DEFAULT_PDF)
+    ap.add_argument("--pdf", default=DEFAULT_PDF, required=not DEFAULT_PDF,
+                    help="Path to the PDF (or set LOTM_VI_PDF)")
     ap.add_argument("--out", default=str(DEFAULT_OUT))
     ap.add_argument("--max-chap", type=int, default=None,
                     help="stop after this global chapter number")

@@ -4,7 +4,7 @@
 #              Qwen_ZS vs GG (6-10, 20-30).
 # Qwen A2 (20-30) is judged in round 2 when its translation chain finishes.
 set -uo pipefail
-cd "/mnt/d/Dynamic GraphRAG"
+cd "$(dirname "$0")"
 export PYTHONIOENCODING=utf-8
 
 GEM_URL=https://generativelanguage.googleapis.com/v1beta/openai/

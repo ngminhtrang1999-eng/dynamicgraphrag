@@ -13,7 +13,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 export GROQ_SLEEP_SEC=3
 
 echo "=== RAG_BIG: llama3.3-70b + hygiene (chap 7+8) ==="

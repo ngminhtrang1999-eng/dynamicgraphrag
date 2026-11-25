@@ -17,7 +17,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 export GROQ_SLEEP_SEC=3
 
 LOG=track3_scaleout_$(date +%Y%m%d_%H%M%S).log

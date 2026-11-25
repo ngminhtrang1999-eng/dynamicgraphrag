@@ -2,7 +2,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate graphrag
-cd '/mnt/d/Dynamic GraphRAG'
+cd "$(dirname "$0")"
 for n in 7 8 9 10; do
   echo "=== chap $n ==="
   python align_ablation.py \
